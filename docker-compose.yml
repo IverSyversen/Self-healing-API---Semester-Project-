@@ -1,0 +1,40 @@
+version: "3.9"
+
+services:
+  user-service:
+    build:
+      context: .
+      dockerfile: services/user_service/Dockerfile
+    container_name: user-service
+    ports:
+      - "8001:8000"
+    environment:
+      - USER_DB_PATH=/data/user_service.db
+    volumes:
+      - user_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  item-service:
+    build:
+      context: .
+      dockerfile: services/item_service/Dockerfile
+    container_name: item-service
+    ports:
+      - "8002:8000"
+    environment:
+      - ITEM_DB_PATH=/data/item_service.db
+    volumes:
+      - item_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  user_data:
+  item_data:

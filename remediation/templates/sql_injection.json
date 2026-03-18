@@ -1,0 +1,28 @@
+{
+  "vulnerability_type": "SQL_INJECTION",
+  "owasp_category": "API10:2023 - Unsafe Consumption of APIs",
+  "severity": "CRITICAL",
+  "description": "SQL Injection occurs when user-supplied data is concatenated directly into a SQL query string, allowing an attacker to alter the query's logic.",
+  "fix_description": "Replace all string-interpolated SQL queries with parameterised queries. User input must be passed as a separate argument tuple, never embedded in the query string.",
+  "code_pattern": {
+    "vulnerable_example": "db.execute(f\"SELECT * FROM users WHERE username = '{username}'\")",
+    "fixed_example":      "db.execute(\"SELECT * FROM users WHERE username = ?\", (username,))"
+  },
+  "patch_steps": [
+    "Identify every call to db.execute() (or cursor.execute()) that uses f-strings, %-formatting, or string concatenation.",
+    "Replace the query string with a plain string using '?' (SQLite) or '%s' (PostgreSQL/MySQL) placeholders.",
+    "Pass the user-controlled values as a second argument tuple to execute().",
+    "Run the test suite to confirm the query still returns the correct data."
+  ],
+  "verification_rules": [
+    "No f-strings inside any execute() call",
+    "No '+' string concatenation inside any execute() call",
+    "No '%-formatting' inside any execute() call",
+    "All user-controlled values supplied as a parameters tuple"
+  ],
+  "references": [
+    "https://owasp.org/API-Security/editions/2023/en/0xaa-unsafe-consumption-of-apis/",
+    "https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html",
+    "CWE-89: Improper Neutralization of Special Elements used in an SQL Command"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "vulnerability_type": "MISSING_RATE_LIMITING",
+  "owasp_category": "API4:2023 - Unrestricted Resource & Rate Limiting",
+  "severity": "MEDIUM",
+  "description": "Without rate limiting, an attacker (or a runaway client) can flood an endpoint with requests, causing Denial-of-Service, brute-force attacks, or enumeration of data.",
+  "fix_description": "Apply a rate-limiting middleware (e.g. slowapi for FastAPI) to cap the number of requests per client per time window. Start conservatively on sensitive or expensive endpoints.",
+  "code_pattern": {
+    "vulnerable_example": "@app.post('/items/search')\ndef search_items(req: SearchRequest):\n    return db.execute(f\"SELECT * FROM items WHERE name LIKE '%{req.query}%'\").fetchall()",
+    "fixed_example":      "from slowapi import Limiter\nfrom slowapi.util import get_remote_address\n\nlimiter = Limiter(key_func=get_remote_address)\napp.state.limiter = limiter\n\n@app.post('/items/search')\n@limiter.limit('20/minute')\ndef search_items(request: Request, req: SearchRequest):\n    return db.execute('SELECT * FROM items WHERE name LIKE ?', (f'%{req.query}%',)).fetchall()"
+  },
+  "patch_steps": [
+    "Install a rate-limiting library: pip install slowapi",
+    "Initialise the Limiter with a key function (typically the client IP).",
+    "Register the SlowAPIMiddleware with the FastAPI app.",
+    "Decorate each high-risk endpoint with @limiter.limit('N/minute').",
+    "Return HTTP 429 when the limit is exceeded (slowapi does this automatically)."
+  ],
+  "verification_rules": [
+    "Sending more than N requests per minute from the same IP returns HTTP 429",
+    "Rate-limit headers (X-RateLimit-*) are present in responses",
+    "The limit is documented in the OpenAPI schema"
+  ],
+  "references": [
+    "https://owasp.org/API-Security/editions/2023/en/0xa4-unrestricted-resource-consumption/",
+    "https://github.com/laurents/slowapi",
+    "CWE-770: Allocation of Resources Without Limits or Throttling"
+  ]
+}

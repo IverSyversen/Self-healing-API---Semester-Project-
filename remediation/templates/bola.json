@@ -1,0 +1,29 @@
+{
+  "vulnerability_type": "BOLA",
+  "owasp_category": "API1:2023 - Broken Object Level Authorization",
+  "severity": "HIGH",
+  "description": "BOLA (also known as IDOR) occurs when a resource ID accepted via the URL is used to fetch or modify a record without checking that the authenticated user actually owns or has rights to that record.",
+  "fix_description": "After fetching the requested object from the database, compare its owner_id (or equivalent) with the authenticated user's id. If they do not match and the caller is not an admin, return HTTP 403.",
+  "code_pattern": {
+    "vulnerable_example": "@app.get('/items/{item_id}')\ndef get_item(item_id: int):\n    return db.execute('SELECT * FROM items WHERE id = ?', (item_id,)).fetchone()",
+    "fixed_example":      "@app.get('/items/{item_id}')\ndef get_item(item_id: int, current_user: User = Depends(get_current_user)):\n    item = db.execute('SELECT * FROM items WHERE id = ?', (item_id,)).fetchone()\n    if item is None:\n        raise HTTPException(status_code=404)\n    if item['owner_id'] != current_user.id:\n        raise HTTPException(status_code=403, detail='Forbidden')\n    return item"
+  },
+  "patch_steps": [
+    "Add authentication (see broken_auth template) so that current_user is available in the handler.",
+    "Fetch the object from the database using the supplied id.",
+    "If the object does not exist, return HTTP 404.",
+    "Compare object.owner_id with current_user.id; if they differ and the user is not an admin, return HTTP 403.",
+    "Only return the object after the ownership check passes."
+  ],
+  "verification_rules": [
+    "Every handler that accepts an object id path parameter performs an ownership check",
+    "Accessing another user's resource returns HTTP 403, not 200",
+    "Admin role bypass is explicit and audited",
+    "Tests cover both the authorised and unauthorised access scenarios"
+  ],
+  "references": [
+    "https://owasp.org/API-Security/editions/2023/en/0xa1-broken-object-level-authorization/",
+    "https://cheatsheetseries.owasp.org/cheatsheets/Insecure_Direct_Object_Reference_Prevention_Cheat_Sheet.html",
+    "CWE-639: Authorization Bypass Through User-Controlled Key"
+  ]
+}

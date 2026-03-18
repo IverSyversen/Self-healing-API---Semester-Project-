@@ -1,0 +1,27 @@
+{
+  "vulnerability_type": "EXCESSIVE_DATA_EXPOSURE",
+  "owasp_category": "API3:2023 - Broken Object Property Level Authorization",
+  "severity": "MEDIUM",
+  "description": "Excessive Data Exposure occurs when an API returns more fields than the consumer needs, including sensitive fields like password hashes, secret keys, or internal identifiers that should never leave the server.",
+  "fix_description": "Define an explicit Pydantic response model that whitelists only the fields the client is allowed to see. Use response_model= in the route decorator to enforce the schema at the framework level.",
+  "code_pattern": {
+    "vulnerable_example": "@app.get('/users/{user_id}')\ndef get_user(user_id: int):\n    row = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()\n    return dict(row)  # includes 'password'!",
+    "fixed_example":      "class UserPublic(BaseModel):\n    id: int\n    username: str\n    email: str\n    # 'password' deliberately excluded\n\n@app.get('/users/{user_id}', response_model=UserPublic)\ndef get_user(user_id: int, current_user: User = Depends(get_current_user)):\n    row = db.execute('SELECT * FROM users WHERE id = ?', (user_id,)).fetchone()\n    return dict(row)"
+  },
+  "patch_steps": [
+    "Create a Pydantic model (e.g. UserPublic) that contains only the fields safe to expose.",
+    "Add response_model=UserPublic to the @app.get() decorator.",
+    "Remove any code that manually constructs a dict from the full database row.",
+    "Audit all other routes for similar over-exposure."
+  ],
+  "verification_rules": [
+    "Response body does not contain 'password', 'secret', 'token', or 'api_key' fields",
+    "A response_model is declared on every route that returns user or item data",
+    "Automated tests assert that sensitive keys are absent from responses"
+  ],
+  "references": [
+    "https://owasp.org/API-Security/editions/2023/en/0xa3-broken-object-property-level-authorization/",
+    "https://cheatsheetseries.owasp.org/cheatsheets/Mass_Assignment_Cheat_Sheet.html",
+    "CWE-213: Exposure of Sensitive Information Due to Incompatible Policies"
+  ]
+}

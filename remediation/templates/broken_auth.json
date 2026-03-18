@@ -1,0 +1,28 @@
+{
+  "vulnerability_type": "BROKEN_AUTH",
+  "owasp_category": "API2:2023 - Broken Authentication",
+  "severity": "HIGH",
+  "description": "Broken Authentication occurs when API endpoints perform sensitive operations without verifying the caller's identity, allowing any anonymous request to succeed.",
+  "fix_description": "Protect every sensitive route with an authentication dependency that validates a bearer token (JWT) or session credential before the handler runs.",
+  "code_pattern": {
+    "vulnerable_example": "@app.get('/users')\ndef list_users():\n    return db.execute('SELECT * FROM users').fetchall()",
+    "fixed_example":      "@app.get('/users')\ndef list_users(current_user: User = Depends(get_current_user)):\n    return db.execute('SELECT * FROM users').fetchall()"
+  },
+  "patch_steps": [
+    "Implement a get_current_user() dependency that reads the Authorization header, validates the token, and returns the authenticated user object.",
+    "Add 'current_user: User = Depends(get_current_user)' as a parameter to every route handler that accesses sensitive data or mutates state.",
+    "Return HTTP 401 from get_current_user() when no valid token is present.",
+    "Ensure the OpenAPI docs reflect the new security scheme (HTTPBearer)."
+  ],
+  "verification_rules": [
+    "Every sensitive route handler includes a Depends(get_current_user) parameter",
+    "Unauthenticated requests to protected routes return HTTP 401",
+    "Token validation includes expiry checks",
+    "Secrets (e.g. JWT secret key) are loaded from environment variables, not hardcoded"
+  ],
+  "references": [
+    "https://owasp.org/API-Security/editions/2023/en/0xa2-broken-authentication/",
+    "https://cheatsheetseries.owasp.org/cheatsheets/Authentication_Cheat_Sheet.html",
+    "CWE-287: Improper Authentication"
+  ]
+}
