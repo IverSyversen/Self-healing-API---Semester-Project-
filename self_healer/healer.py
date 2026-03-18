@@ -286,7 +286,7 @@ class SelfHealer:
     @staticmethod
     def _apply_auto_patches(
         source: str, plans: List[RemediationPlan]
-    ) -> tuple[str, set]:
+    ) -> "tuple[str, set]":
         """
         Apply conservative automatic patches and return (patched_source, applied_types).
 
