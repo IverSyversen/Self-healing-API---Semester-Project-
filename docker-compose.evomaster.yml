@@ -1,0 +1,178 @@
+# =============================================================================
+# docker-compose.evomaster.yml
+#
+# Modified Docker Compose for EvoMaster white-box testing.
+#
+# Differences from the standard crAPI docker-compose.yml:
+#   - The `crapi-community` service is defined but started in "stopped" state
+#     by default; run-whitebox.sh stops it before the EvoMaster driver starts
+#     so that port 8087 is free for the instrumented JAR process.
+#   - All other services (identity, workshop, web, MongoDB, PostgreSQL, Mailhog)
+#     start normally so the community service has its dependencies available.
+#
+# Usage:
+#   LISTEN_IP="0.0.0.0" docker compose -f docker-compose.evomaster.yml up -d
+#
+# The run-whitebox.sh script handles starting and stopping the community
+# container automatically; you do not need to manage it manually.
+# =============================================================================
+
+version: "3.9"
+
+# ---------------------------------------------------------------------------
+# Shared network so every service can reach every other service by hostname.
+# ---------------------------------------------------------------------------
+networks:
+  crapi:
+    driver: bridge
+
+# ---------------------------------------------------------------------------
+# Named volumes for persistent database data.
+# ---------------------------------------------------------------------------
+volumes:
+  mongodb_data:
+  postgres_data:
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+
+  # --------------------------------------------------------------------------
+  # MongoDB – used by the community service.
+  # Exposed on the host so the externally-started community JAR can connect.
+  # --------------------------------------------------------------------------
+  mongodb:
+    image: mongo:6
+    restart: unless-stopped
+    volumes:
+      - mongodb_data:/data/db
+    ports:
+      - "${LISTEN_IP:-127.0.0.1}:27017:27017"
+    networks:
+      - crapi
+
+  # --------------------------------------------------------------------------
+  # PostgreSQL – used by the identity and workshop services.
+  # --------------------------------------------------------------------------
+  postgres:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: crapi
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: crapisecretpassword
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - crapi
+
+  # --------------------------------------------------------------------------
+  # crAPI Identity Service (Java / Spring Boot)
+  # --------------------------------------------------------------------------
+  crapi-identity:
+    image: crapi/crapi-identity:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - mongodb
+    environment:
+      DB_NAME: crapi
+      DB_USER: admin
+      DB_PASSWORD: crapisecretpassword
+      DB_HOST: postgres
+      DB_PORT: 5432
+      MONGO_DB_HOST: mongodb
+      MONGO_DB_PORT: 27017
+      MONGO_DB_USER: ""
+      MONGO_DB_PASSWORD: ""
+      MONGO_DB_NAME: crapi
+      SECRET_KEY: crapi-secret-key-evomaster
+      MAILHOG_HOST: mailhog
+      MAILHOG_PORT: 1025
+      MAILHOG_DOMAIN: example.com
+      SMTP_EMAIL: user@example.com
+      SMTP_PASS: ""
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      COMMUNITY_SERVICE_URL: http://crapi-community:8087
+    networks:
+      - crapi
+
+  # --------------------------------------------------------------------------
+  # crAPI Workshop Service (Python / Flask)
+  # --------------------------------------------------------------------------
+  crapi-workshop:
+    image: crapi/crapi-workshop:latest
+    restart: unless-stopped
+    depends_on:
+      - postgres
+      - mongodb
+      - crapi-identity
+    environment:
+      DB_NAME: crapi
+      DB_USER: admin
+      DB_PASSWORD: crapisecretpassword
+      DB_HOST: postgres
+      DB_PORT: 5432
+      MONGO_DB_HOST: mongodb
+      MONGO_DB_PORT: 27017
+      MONGO_DB_NAME: crapi
+      SECRET_KEY: crapi-secret-key-evomaster
+      IDENTITY_SERVICE_URL: http://crapi-identity:8080
+    networks:
+      - crapi
+
+  # --------------------------------------------------------------------------
+  # crAPI Community Service (Java / Spring Boot)
+  #
+  # NOTE: This container is stopped by run-whitebox.sh before white-box testing
+  #       so that the EvoMaster driver can start an instrumented version of the
+  #       community service JAR directly on the host using port 8087.
+  #
+  #       During normal (non-EvoMaster) operation this container runs as usual.
+  # --------------------------------------------------------------------------
+  crapi-community:
+    image: crapi/crapi-community:latest
+    restart: "no"                   # do not auto-restart; EvoMaster driver owns it
+    depends_on:
+      - mongodb
+      - crapi-identity
+    environment:
+      MONGO_DB_HOST: mongodb
+      MONGO_DB_PORT: 27017
+      MONGO_DB_NAME: crapi
+      IDENTITY_SERVICE_URL: http://crapi-identity:8080
+      SECRET_KEY: crapi-secret-key-evomaster
+    ports:
+      - "${LISTEN_IP:-127.0.0.1}:8087:8087"
+    networks:
+      - crapi
+
+  # --------------------------------------------------------------------------
+  # crAPI Web (React frontend + Nginx reverse proxy)
+  # --------------------------------------------------------------------------
+  crapi-web:
+    image: crapi/crapi-web:latest
+    restart: unless-stopped
+    depends_on:
+      - crapi-identity
+      - crapi-workshop
+      - crapi-community
+    ports:
+      - "${LISTEN_IP:-0.0.0.0}:8888:80"
+      - "${LISTEN_IP:-0.0.0.0}:8443:443"
+    networks:
+      - crapi
+
+  # --------------------------------------------------------------------------
+  # Mailhog – catches all outbound e-mails (registration, password reset, etc.)
+  # --------------------------------------------------------------------------
+  mailhog:
+    image: mailhog/mailhog
+    restart: unless-stopped
+    ports:
+      - "${LISTEN_IP:-0.0.0.0}:8025:8025"
+      - "1025:1025"
+    networks:
+      - crapi
