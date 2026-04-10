@@ -78,10 +78,10 @@ download_evomaster() {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Build the crAPI community service JAR
+# 5. Build the crAPI identity service JAR
 # ---------------------------------------------------------------------------
 build_community_jar() {
-  info "Building crAPI community service JAR…"
+  info "Building crAPI identity service JAR…"
   bash "${SCRIPT_DIR}/build-community-jar.sh"
 }
 

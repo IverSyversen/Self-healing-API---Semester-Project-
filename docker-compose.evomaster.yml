@@ -54,6 +54,7 @@ services:
 
   # --------------------------------------------------------------------------
   # PostgreSQL – used by the identity and workshop services.
+  # Exposed on the host so the externally-started identity JAR can connect.
   # --------------------------------------------------------------------------
   postgres:
     image: postgres:15
@@ -64,11 +65,19 @@ services:
       POSTGRES_PASSWORD: crapisecretpassword
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${LISTEN_IP:-127.0.0.1}:5432:5432"
     networks:
       - crapi
 
   # --------------------------------------------------------------------------
   # crAPI Identity Service (Java / Spring Boot)
+  #
+  # NOTE: This container is stopped by run-whitebox.sh before white-box testing
+  #       so that the EvoMaster driver can start an instrumented version of the
+  #       identity service JAR directly on the host using port 8080.
+  #
+  #       During normal (non-EvoMaster) operation this container runs as usual.
   # --------------------------------------------------------------------------
   crapi-identity:
     image: crapi/crapi-identity:latest
@@ -124,17 +133,15 @@ services:
       - crapi
 
   # --------------------------------------------------------------------------
-  # crAPI Community Service (Java / Spring Boot)
+  # crAPI Community Service (Go / Gin)
   #
-  # NOTE: This container is stopped by run-whitebox.sh before white-box testing
-  #       so that the EvoMaster driver can start an instrumented version of the
-  #       community service JAR directly on the host using port 8087.
-  #
-  #       During normal (non-EvoMaster) operation this container runs as usual.
+  # This service is written in Go and cannot be instrumented by EvoMaster's
+  # Java agent.  It runs normally as part of the Docker stack so dependent
+  # services remain available.  run-whitebox.sh does NOT stop this container.
   # --------------------------------------------------------------------------
   crapi-community:
     image: crapi/crapi-community:latest
-    restart: "no"                   # do not auto-restart; EvoMaster driver owns it
+    restart: unless-stopped
     depends_on:
       - mongodb
       - crapi-identity

@@ -63,9 +63,13 @@ python -m http.server 8000
 
 ### EvoMaster – White-Box Mode
 
-White-box mode instruments the **crAPI community service** JVM bytecode at runtime,
+White-box mode instruments the **crAPI identity service** JVM bytecode at runtime,
 giving EvoMaster branch-level feedback to guide test generation far beyond what is
 possible with black-box HTTP fuzzing alone.
+
+> **Note:** The crAPI community service is written in **Go** and cannot be
+> instrumented by EvoMaster's Java agent.  The identity service (Java / Spring Boot,
+> port 8080) is used as the white-box testing target instead.
 
 #### Architecture
 
@@ -73,8 +77,8 @@ possible with black-box HTTP fuzzing alone.
 DigitalOcean Droplet
 ├── Docker Compose (docker-compose.evomaster.yml)
 │   ├── MongoDB, PostgreSQL, Mailhog
-│   ├── crapi-identity, crapi-workshop, crapi-web
-│   └── crapi-community  ← stopped during white-box run (port freed for EvoMaster)
+│   ├── crapi-community, crapi-workshop, crapi-web
+│   └── crapi-identity  ← stopped during white-box run (port freed for EvoMaster)
 ├── EvoMaster Driver (Java, port 40100)
 │   └── spawns → community-service.jar  ← with -javaagent:evomaster-agent.jar
 └── EvoMaster CLI  ← connects to driver, generates JUnit 5 test suite
@@ -94,7 +98,7 @@ sudo bash scripts/setup-droplet.sh
 This script:
 1. Installs **Java 17** and **Maven** if not already present
 2. Downloads `evomaster.jar` and `evomaster-agent.jar` to `/opt/evomaster/`
-3. Fetches the crAPI community service source, builds it, and installs the fat JAR at `/opt/crapi/community-service.jar`
+3. Fetches the crAPI **identity** service source (Java/Spring Boot), builds it with the bundled Gradle wrapper, and installs the fat JAR at `/opt/crapi/community-service.jar`
 4. Builds the EvoMaster driver fat JAR at `evomaster-driver/target/crapi-community-driver-1.0.0.jar`
 
 #### Running a White-Box Test Session

@@ -42,8 +42,10 @@ COMMUNITY_JAR="/opt/crapi/community-service.jar"
 DRIVER_JAR="${REPO_ROOT}/evomaster-driver/target/crapi-community-driver-1.0.0.jar"
 
 DRIVER_PORT=40100
-SUT_PORT=8087
-MONGO_URI="mongodb://localhost:27017/crapi"
+SUT_PORT=8080
+DB_URL="jdbc:postgresql://localhost:5432/crapi"
+DB_USER="admin"
+DB_PASS="crapisecretpassword"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -75,9 +77,9 @@ cleanup() {
     kill "${DRIVER_PID}" || true
   fi
   if [[ "${RESTORE_COMMUNITY}" == "true" ]]; then
-    info "Restoring Docker community service…"
-    docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" up -d crapi-community \
-      || warning "Could not restart the community service Docker container."
+    info "Restoring Docker identity service…"
+    docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" up -d crapi-identity \
+      || warning "Could not restart the identity service Docker container."
   fi
 }
 
@@ -112,11 +114,11 @@ info "Waiting 15 s for services to initialise…"
 sleep 15
 
 # ---------------------------------------------------------------------------
-# 2. Stop the Docker-managed community service so we can claim port ${SUT_PORT}.
+# 2. Stop the Docker-managed identity service so we can claim port ${SUT_PORT}.
 # ---------------------------------------------------------------------------
-info "Stopping Docker community service container (port ${SUT_PORT} must be free)…"
-docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" stop crapi-community \
-  || warning "crapi-community container was not running – that is fine."
+info "Stopping Docker identity service container (port ${SUT_PORT} must be free)…"
+docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" stop crapi-identity \
+  || warning "crapi-identity container was not running – that is fine."
 
 # ---------------------------------------------------------------------------
 # 3. Start the EvoMaster driver in the background.
@@ -128,7 +130,9 @@ info "Starting EvoMaster driver on port ${DRIVER_PORT}…"
 java \
   -Dsut.jar="${COMMUNITY_JAR}" \
   -Dagent.jar="${EVOMASTER_AGENT}" \
-  -Dmongo.uri="${MONGO_URI}" \
+  -Ddb.url="${DB_URL}" \
+  -Ddb.user="${DB_USER}" \
+  -Ddb.password="${DB_PASS}" \
   -Dopenapi.url="http://localhost:${SUT_PORT}/v3/api-docs" \
   -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
   > "${OUTPUT_DIR}/driver.log" 2>&1 &
