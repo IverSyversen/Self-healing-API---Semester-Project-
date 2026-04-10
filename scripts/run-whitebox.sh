@@ -171,7 +171,6 @@ java -jar "${EVOMASTER_CLI}" \
   --outputFolder "${OUTPUT_DIR}" \
   --outputFormat JAVA_JUNIT_5 \
   --testSuiteFileName CrApiCommunityEvoMasterTest \
-  --coveredTargetSortedBy EXECUTION_INDEX \
   --enableBasicAssertions true \
   --seed 12345
 
