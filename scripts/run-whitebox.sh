@@ -149,7 +149,7 @@ info "Driver PID: ${DRIVER_PID}  (logs: ${OUTPUT_DIR}/driver.log)"
 info "Waiting for EvoMaster driver to be ready…"
 DRIVER_READY=false
 for _ in $(seq 1 60); do
-  if curl -sf "http://localhost:${DRIVER_PORT}/api/infoSUT" > /dev/null 2>&1; then
+  if curl -sf "http://localhost:${DRIVER_PORT}/controller/api/infoSUT" > /dev/null 2>&1; then
     info "Driver is ready."
     DRIVER_READY=true
     break
