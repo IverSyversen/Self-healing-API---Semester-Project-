@@ -4,16 +4,20 @@
 # Modified Docker Compose for EvoMaster white-box testing.
 #
 # Differences from the standard crAPI docker-compose.yml:
-#   - The `crapi-community` service is defined but started in "stopped" state
-#     by default; run-whitebox.sh stops it before the EvoMaster driver starts
-#     so that port 8087 is free for the instrumented JAR process.
-#   - All other services (identity, workshop, web, MongoDB, PostgreSQL, Mailhog)
-#     start normally so the community service has its dependencies available.
+#   - The `crapi-identity` service container is stopped by run-whitebox.sh
+#     before the EvoMaster driver starts so that port 8080 is free for the
+#     instrumented identity-service.jar process.
+#   - PostgreSQL is exposed on the host (127.0.0.1:5432) so the standalone
+#     identity JAR can reach it directly.  NOTE: do NOT run docker compose
+#     with LISTEN_IP=0.0.0.0 on a public droplet as that would expose the
+#     database to the internet.
+#   - All other services (community, workshop, web, MongoDB, Mailhog) start
+#     normally so the identity service has its dependencies available.
 #
 # Usage:
-#   LISTEN_IP="0.0.0.0" docker compose -f docker-compose.evomaster.yml up -d
+#   docker compose -f docker-compose.evomaster.yml up -d
 #
-# The run-whitebox.sh script handles starting and stopping the community
+# The run-whitebox.sh script handles starting and stopping the identity
 # container automatically; you do not need to manage it manually.
 # =============================================================================
 
@@ -39,8 +43,8 @@ volumes:
 services:
 
   # --------------------------------------------------------------------------
-  # MongoDB – used by the community service.
-  # Exposed on the host so the externally-started community JAR can connect.
+  # MongoDB – used by the community service and identity service.
+  # Exposed on the host so the externally-started identity JAR can connect.
   # --------------------------------------------------------------------------
   mongodb:
     image: mongo:6
@@ -54,6 +58,7 @@ services:
 
   # --------------------------------------------------------------------------
   # PostgreSQL – used by the identity and workshop services.
+  # Exposed on the host so the externally-started identity JAR can connect.
   # --------------------------------------------------------------------------
   postgres:
     image: postgres:15
@@ -64,11 +69,19 @@ services:
       POSTGRES_PASSWORD: crapisecretpassword
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${LISTEN_IP:-127.0.0.1}:5432:5432"
     networks:
       - crapi
 
   # --------------------------------------------------------------------------
   # crAPI Identity Service (Java / Spring Boot)
+  #
+  # NOTE: This container is stopped by run-whitebox.sh before white-box testing
+  #       so that the EvoMaster driver can start an instrumented version of the
+  #       identity service JAR directly on the host using port 8080.
+  #
+  #       During normal (non-EvoMaster) operation this container runs as usual.
   # --------------------------------------------------------------------------
   crapi-identity:
     image: crapi/crapi-identity:latest
@@ -124,17 +137,15 @@ services:
       - crapi
 
   # --------------------------------------------------------------------------
-  # crAPI Community Service (Java / Spring Boot)
+  # crAPI Community Service (Go / Gin)
   #
-  # NOTE: This container is stopped by run-whitebox.sh before white-box testing
-  #       so that the EvoMaster driver can start an instrumented version of the
-  #       community service JAR directly on the host using port 8087.
-  #
-  #       During normal (non-EvoMaster) operation this container runs as usual.
+  # This service is written in Go and cannot be instrumented by EvoMaster's
+  # Java agent.  It runs normally as part of the Docker stack so dependent
+  # services remain available.  run-whitebox.sh does NOT stop this container.
   # --------------------------------------------------------------------------
   crapi-community:
     image: crapi/crapi-community:latest
-    restart: "no"                   # do not auto-restart; EvoMaster driver owns it
+    restart: unless-stopped
     depends_on:
       - mongodb
       - crapi-identity

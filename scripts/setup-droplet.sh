@@ -8,7 +8,7 @@
 # What it does:
 #   1. Installs Java 17 and Maven if they are not already present.
 #   2. Calls download-evomaster.sh to fetch evomaster.jar and evomaster-agent.jar.
-#   3. Calls build-community-jar.sh to fetch and build the crAPI community service.
+#   3. Calls build-community-jar.sh to fetch and build the crAPI identity service.
 #   4. Builds the EvoMaster driver fat JAR.
 #   5. Verifies that the crAPI Docker stack is (or can be) running.
 # =============================================================================
@@ -78,10 +78,10 @@ download_evomaster() {
 }
 
 # ---------------------------------------------------------------------------
-# 5. Build the crAPI community service JAR
+# 5. Build the crAPI identity service JAR
 # ---------------------------------------------------------------------------
-build_community_jar() {
-  info "Building crAPI community service JAR…"
+build_identity_jar() {
+  info "Building crAPI identity service JAR…"
   bash "${SCRIPT_DIR}/build-community-jar.sh"
 }
 
@@ -103,7 +103,7 @@ install_java
 install_maven
 install_docker
 download_evomaster
-build_community_jar
+build_identity_jar
 build_driver
 
 info "===================================================================="
