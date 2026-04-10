@@ -2,8 +2,8 @@
 # =============================================================================
 # download-evomaster.sh
 #
-# Downloads the EvoMaster CLI JAR and the Java bytecode-instrumentation agent
-# from the official GitHub releases page.
+# Downloads the EvoMaster CLI JAR from the official GitHub releases page and
+# the Java bytecode-instrumentation agent from Maven Central.
 #
 # Artifacts are placed in /opt/evomaster/:
 #   /opt/evomaster/evomaster.jar        – CLI used to run test generation
@@ -13,7 +13,8 @@ set -euo pipefail
 
 EVOMASTER_VERSION="3.3.0"
 INSTALL_DIR="/opt/evomaster"
-BASE_URL="https://github.com/EMResearch/EvoMaster/releases/download/v${EVOMASTER_VERSION}"
+BASE_URL="https://github.com/WebFuzzing/EvoMaster/releases/download/v${EVOMASTER_VERSION}"
+MAVEN_CENTRAL_URL="https://repo1.maven.org/maven2/org/evomaster"
 
 info()  { echo "[INFO]  $*"; }
 error() { echo "[ERROR] $*" >&2; }
@@ -39,8 +40,10 @@ download_if_missing \
   "${BASE_URL}/evomaster.jar" \
   "${INSTALL_DIR}/evomaster.jar"
 
+# The Java bytecode-instrumentation agent is not a GitHub release asset;
+# it is published to Maven Central as evomaster-client-java-instrumentation.
 download_if_missing \
-  "${BASE_URL}/evomaster-agent.jar" \
+  "${MAVEN_CENTRAL_URL}/evomaster-client-java-instrumentation/${EVOMASTER_VERSION}/evomaster-client-java-instrumentation-${EVOMASTER_VERSION}.jar" \
   "${INSTALL_DIR}/evomaster-agent.jar"
 
 info "EvoMaster ${EVOMASTER_VERSION} artifacts ready in ${INSTALL_DIR}/"
