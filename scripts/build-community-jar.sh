@@ -20,7 +20,7 @@ set -euo pipefail
 CRAPI_REPO="https://github.com/OWASP/crAPI/archive/refs/heads/main.zip"
 WORK_DIR="/tmp/crapi-build"
 INSTALL_DIR="/opt/crapi"
-JAR_TARGET="${INSTALL_DIR}/community-service.jar"
+JAR_TARGET="${INSTALL_DIR}/identity-service.jar"
 JWKS_TARGET="${INSTALL_DIR}/jwks.json"
 
 info()  { echo "[INFO]  $*"; }

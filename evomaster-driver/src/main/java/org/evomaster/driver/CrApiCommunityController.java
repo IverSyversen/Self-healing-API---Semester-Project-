@@ -39,7 +39,7 @@ import java.util.List;
  * <p><b>Optional system properties (pass with -D on the command line):</b>
  * <ul>
  *   <li>{@code sut.jar}    – absolute path to the identity-service fat JAR
- *       (default: {@code /opt/crapi/community-service.jar})</li>
+ *       (default: {@code /opt/crapi/identity-service.jar})</li>
  *   <li>{@code agent.jar}  – absolute path to {@code evomaster-agent.jar}
  *       (default: {@code /opt/evomaster/evomaster-agent.jar})</li>
  *   <li>{@code jwks.file}  – absolute path to the JWKS JSON file installed by the
@@ -85,7 +85,7 @@ public class CrApiCommunityController extends ExternalSutController {
 
     @Override
     public String getPathToExecutableJar() {
-        return System.getProperty("sut.jar", "/opt/crapi/community-service.jar");
+        return System.getProperty("sut.jar", "/opt/crapi/identity-service.jar");
     }
 
     /**
@@ -239,7 +239,10 @@ public class CrApiCommunityController extends ExternalSutController {
                 // Disable FK checks so tables can be truncated in any order.
                 st.execute("SET session_replication_role = 'replica'");
                 for (String table : tables) {
-                    st.execute("TRUNCATE TABLE public.\"" + table
+                    // Escape any double-quote characters in the table name to prevent
+                    // SQL injection via a maliciously crafted schema.
+                    String safe = table.replace("\"", "\"\"");
+                    st.execute("TRUNCATE TABLE public.\"" + safe
                             + "\" RESTART IDENTITY CASCADE");
                 }
                 st.execute("SET session_replication_role = 'origin'");

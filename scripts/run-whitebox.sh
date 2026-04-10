@@ -38,7 +38,7 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 EVOMASTER_DIR="/opt/evomaster"
 EVOMASTER_CLI="${EVOMASTER_DIR}/evomaster.jar"
 EVOMASTER_AGENT="${EVOMASTER_DIR}/evomaster-agent.jar"
-COMMUNITY_JAR="/opt/crapi/community-service.jar"
+COMMUNITY_JAR="/opt/crapi/identity-service.jar"
 DRIVER_JAR="${REPO_ROOT}/evomaster-driver/target/crapi-community-driver-1.0.0.jar"
 
 DRIVER_PORT=40100
