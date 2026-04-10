@@ -3,17 +3,17 @@
 # run-whitebox.sh
 #
 # Orchestrates an EvoMaster white-box test-generation run against the crAPI
-# community service.
+# identity service.
 #
 # Steps:
-#   1.  Start the full crAPI Docker stack (minus community service) so that
-#       MongoDB and dependent services are available.
-#   2.  Stop the Docker-managed community service container so its port is free.
+#   1.  Start the full crAPI Docker stack (all services including community)
+#       so that MongoDB and dependent services are available.
+#   2.  Stop the Docker-managed identity service container so its port is free.
 #   3.  Start the EvoMaster driver (CrApiCommunityController) in the background.
-#       The driver will spawn the community service JAR with the EvoMaster agent.
+#       The driver will spawn the identity service JAR with the EvoMaster agent.
 #   4.  Run the EvoMaster CLI in white-box mode.
 #   5.  Print the location of the generated test suite.
-#   6.  Stop the driver and restore the Docker community service (optional).
+#   6.  Stop the driver and restore the Docker identity service (optional).
 #
 # Usage:
 #   bash scripts/run-whitebox.sh [--time <minutes>] [--output <dir>]
@@ -21,7 +21,7 @@
 # Options:
 #   --time    <minutes>   Budget for EvoMaster test generation (default: 60)
 #   --output  <dir>       Directory to write generated tests (default: ./generated_tests)
-#   --no-restore          Do not restart the Docker community service after the run
+#   --no-restore          Do not restart the Docker identity service after the run
 # =============================================================================
 set -euo pipefail
 
@@ -38,12 +38,14 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 EVOMASTER_DIR="/opt/evomaster"
 EVOMASTER_CLI="${EVOMASTER_DIR}/evomaster.jar"
 EVOMASTER_AGENT="${EVOMASTER_DIR}/evomaster-agent.jar"
-COMMUNITY_JAR="/opt/crapi/identity-service.jar"
+IDENTITY_JAR="/opt/crapi/identity-service.jar"
 DRIVER_JAR="${REPO_ROOT}/evomaster-driver/target/crapi-community-driver-1.0.0.jar"
 
 DRIVER_PORT=40100
 SUT_PORT=8080
-DB_URL="jdbc:postgresql://localhost:5432/crapi"
+DB_HOST="localhost"
+DB_PORT="5432"
+DB_NAME="crapi"
 DB_USER="admin"
 DB_PASS="crapisecretpassword"
 
@@ -88,7 +90,7 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 # Pre-flight checks
 # ---------------------------------------------------------------------------
-for f in "${EVOMASTER_CLI}" "${EVOMASTER_AGENT}" "${COMMUNITY_JAR}" "${DRIVER_JAR}"; do
+for f in "${EVOMASTER_CLI}" "${EVOMASTER_AGENT}" "${IDENTITY_JAR}" "${DRIVER_JAR}"; do
   if [[ ! -f "${f}" ]]; then
     error "Required file not found: ${f}"
     error "Run scripts/setup-droplet.sh first."
@@ -102,10 +104,10 @@ if ! command -v docker &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 1. Ensure the crAPI stack is running (databases + all services except community)
+# 1. Ensure the crAPI stack is running (all services; identity will be stopped next)
 # ---------------------------------------------------------------------------
-info "Starting crAPI Docker stack (without community service)…"
-LISTEN_IP="0.0.0.0" docker compose \
+info "Starting crAPI Docker stack…"
+docker compose \
   -f "${REPO_ROOT}/docker-compose.evomaster.yml" \
   up -d --remove-orphans
 
@@ -128,9 +130,11 @@ mkdir -p "${OUTPUT_DIR}"
 
 info "Starting EvoMaster driver on port ${DRIVER_PORT}…"
 java \
-  -Dsut.jar="${COMMUNITY_JAR}" \
+  -Dsut.jar="${IDENTITY_JAR}" \
   -Dagent.jar="${EVOMASTER_AGENT}" \
-  -Ddb.url="${DB_URL}" \
+  -Ddb.host="${DB_HOST}" \
+  -Ddb.port="${DB_PORT}" \
+  -Ddb.name="${DB_NAME}" \
   -Ddb.user="${DB_USER}" \
   -Ddb.password="${DB_PASS}" \
   -Dopenapi.url="http://localhost:${SUT_PORT}/v3/api-docs" \

@@ -91,14 +91,14 @@ DigitalOcean Droplet
 git clone <repo-url> /opt/crapi-evomaster
 cd /opt/crapi-evomaster
 
-# Install Java 17, Maven, download EvoMaster artifacts, build driver + community JAR
+# Install Java 17, Maven, download EvoMaster artifacts, build driver + identity JAR
 sudo bash scripts/setup-droplet.sh
 ```
 
 This script:
 1. Installs **Java 17** and **Maven** if not already present
 2. Downloads `evomaster.jar` and `evomaster-agent.jar` to `/opt/evomaster/`
-3. Fetches the crAPI **identity** service source (Java/Spring Boot), builds it with the bundled Gradle wrapper, and installs the fat JAR at `/opt/crapi/identity-service.jar`
+3. Fetches the crAPI **identity** service source (Java/Spring Boot), builds it with the bundled Gradle wrapper, and installs the fat JAR at `/opt/crapi/identity-service.jar` plus `jwks.json`
 4. Builds the EvoMaster driver fat JAR at `evomaster-driver/target/crapi-community-driver-1.0.0.jar`
 
 #### Running a White-Box Test Session
@@ -112,12 +112,12 @@ bash scripts/run-whitebox.sh --time 30 --output /opt/results/evomaster
 ```
 
 The script:
-1. Starts the crAPI Docker stack (all services except community) via `docker-compose.evomaster.yml`
-2. Stops the community Docker container so port 8087 is free
-3. Starts the EvoMaster driver; the driver spawns the community JAR with the agent
+1. Starts the crAPI Docker stack (all services) via `docker-compose.evomaster.yml`
+2. Stops the `crapi-identity` Docker container so port 8080 is free
+3. Starts the EvoMaster driver; the driver spawns the identity service JAR with the agent
 4. Runs the EvoMaster CLI in white-box mode for the specified time budget
 5. Writes a **JUnit 5 test suite** + HTML report to the output directory
-6. Automatically restores the Docker community container on exit
+6. Automatically restores the Docker identity container on exit
 
 #### Viewing the Report
 
@@ -133,8 +133,7 @@ python3 -m http.server 8000
 |---|---|
 | `evomaster-driver/pom.xml` | Maven project for the EvoMaster driver |
 | `evomaster-driver/src/…/CrApiCommunityController.java` | `ExternalSutController` implementation |
-| `evomaster-driver/src/…/MongoDbResetter.java` | Resets MongoDB state between generated tests |
-| `docker-compose.evomaster.yml` | Docker Compose with community service managed externally |
+| `docker-compose.evomaster.yml` | Docker Compose with identity service managed externally |
 | `scripts/setup-droplet.sh` | One-time droplet setup (Java, Maven, artifacts, driver build) |
 | `scripts/download-evomaster.sh` | Downloads EvoMaster CLI and agent JARs |
 | `scripts/build-community-jar.sh` | Builds the crAPI identity service fat JAR |
@@ -144,7 +143,7 @@ python3 -m http.server 8000
 
 | | Black-box | White-box |
 |---|---|---|
-| Source code access | Not required | Community service JAR instrumented |
+| Source code access | Not required | Identity service JAR instrumented |
 | Coverage feedback | None | Branch-level (bytecode) |
 | Test quality | HTTP-level | Deeper: explores internal branches |
 | Setup complexity | Low | Medium (Java build required) |

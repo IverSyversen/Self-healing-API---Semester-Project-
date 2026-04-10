@@ -5,7 +5,9 @@
 # Fetches the crAPI identity service source from the OWASP GitHub repository,
 # builds it with Gradle, and installs the resulting fat JAR at:
 #
-#   /opt/crapi/community-service.jar
+#   /opt/crapi/identity-service.jar
+#
+# Also installs the required JWKS file at /opt/crapi/jwks.json.
 #
 # The EvoMaster driver (CrApiCommunityController) will spawn this JAR as an
 # external process with the EvoMaster Java agent attached.
@@ -92,10 +94,12 @@ cp "${FAT_JAR}" "${JAR_TARGET}"
 info "Identity service JAR installed at ${JAR_TARGET}"
 
 # Install the JWKS file required by the identity service at runtime.
-if [[ -f "${IDENTITY_DIR}/jwks.json" ]]; then
-  cp "${IDENTITY_DIR}/jwks.json" "${JWKS_TARGET}"
-  info "JWKS file installed at ${JWKS_TARGET}"
+if [[ ! -f "${IDENTITY_DIR}/jwks.json" ]]; then
+  error "jwks.json not found in identity service source: ${IDENTITY_DIR}/jwks.json"
+  exit 1
 fi
+cp "${IDENTITY_DIR}/jwks.json" "${JWKS_TARGET}"
+info "JWKS file installed at ${JWKS_TARGET}"
 
 # ---------------------------------------------------------------------------
 # Cleanup

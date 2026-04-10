@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * EvoMaster white-box driver for the crAPI Identity Service.
@@ -45,8 +46,8 @@ import java.util.List;
  *   <li>{@code jwks.file}  – absolute path to the JWKS JSON file installed by the
  *       build script (default: {@code /opt/crapi/jwks.json})</li>
  *   <li>{@code db.host}    – PostgreSQL hostname (default: {@code localhost})</li>
- *   <li>{@code db.url}     – full JDBC URL for state reset
- *       (default: {@code jdbc:postgresql://localhost:5432/crapi})</li>
+ *   <li>{@code db.port}    – PostgreSQL port (default: {@code 5432})</li>
+ *   <li>{@code db.name}    – PostgreSQL database name (default: {@code crapi})</li>
  *   <li>{@code db.user}    – PostgreSQL username (default: {@code admin})</li>
  *   <li>{@code db.password} – PostgreSQL password
  *       (default: {@code crapisecretpassword})</li>
@@ -95,20 +96,35 @@ public class CrApiCommunityController extends ExternalSutController {
      * environment variables that the Spring Boot application.properties placeholders
      * (e.g. {@code ${DB_HOST}}) require, so the service can start without a
      * Docker-injected environment.
+     *
+     * <p>DB credentials are sourced from the same system properties used in
+     * {@link #resetStateOfSUT()} so both the SUT and the reset logic always use
+     * identical credentials.
      */
     @Override
     public String[] getJVMParameters() {
         String agentJar = System.getProperty("agent.jar",
                 "/opt/evomaster/evomaster-agent.jar");
-        String dbHost = System.getProperty("db.host", "localhost");
         return new String[]{
                 "-javaagent:" + agentJar,
-                // PostgreSQL
-                "-DDB_HOST=" + dbHost,
-                "-DDB_PORT=5432",
-                "-DDB_NAME=crapi",
-                "-DDB_USER=admin",
-                "-DDB_PASSWORD=crapisecretpassword",
+                // Server port (overridden via CLI arg in getInputParameters too)
+                "-DSERVER_PORT=" + SUT_PORT,
+                // PostgreSQL – sourced from same system properties as resetStateOfSUT()
+                "-DDB_HOST=" + dbHost(),
+                "-DDB_PORT=" + dbPort(),
+                "-DDB_NAME=" + dbName(),
+                "-DDB_USER=" + dbUser(),
+                "-DDB_PASSWORD=" + dbPassword(),
+                // MongoDB – present in the identity service application context
+                // (used for cross-service calls); point to localhost where MongoDB
+                // is exposed from Docker
+                "-DMONGO_DB_HOST=localhost",
+                "-DMONGO_DB_PORT=27017",
+                "-DMONGO_DB_USER=",
+                "-DMONGO_DB_PASSWORD=",
+                "-DMONGO_DB_NAME=crapi",
+                // JWT / security
+                "-DSECRET_KEY=crapi-secret-key-evomaster",
                 // E-mail (Mailhog, non-critical for test generation)
                 "-DSMTP_AUTH=false",
                 "-DSMTP_STARTTLS=false",
@@ -206,17 +222,13 @@ public class CrApiCommunityController extends ExternalSutController {
     /**
      * Called by EvoMaster before each new test to ensure a clean state.
      *
-     * <p>Truncates every user-owned table in the {@code public} schema so that
-     * data created by one generated test cannot affect the next.  Migration
-     * history tables (Flyway / Liquibase) are preserved.
+     * <p>Truncates every user-owned table in the {@code public} schema in a single
+     * atomic statement so that data created by one generated test cannot affect the
+     * next.  Migration history tables (Flyway / Liquibase) are preserved.
      */
     @Override
     public void resetStateOfSUT() {
-        String pgUrl  = System.getProperty("db.url",      "jdbc:postgresql://localhost:5432/crapi");
-        String pgUser = System.getProperty("db.user",     "admin");
-        String pgPass = System.getProperty("db.password", "crapisecretpassword");
-
-        try (Connection conn = DriverManager.getConnection(pgUrl, pgUser, pgPass)) {
+        try (Connection conn = DriverManager.getConnection(dbJdbcUrl(), dbUser(), dbPassword())) {
 
             List<String> tables = new ArrayList<>();
             try (ResultSet rs = conn.getMetaData()
@@ -235,17 +247,22 @@ public class CrApiCommunityController extends ExternalSutController {
                 return;
             }
 
+            // Build a single TRUNCATE listing all tables; this is atomic and
+            // much faster than N individual statements for frequent EvoMaster resets.
+            String tableList = tables.stream()
+                    .map(t -> "public.\"" + t.replace("\"", "\"\"") + "\"")
+                    .collect(Collectors.joining(", "));
+
+            conn.setAutoCommit(false);
             try (Statement st = conn.createStatement()) {
-                // Disable FK checks so tables can be truncated in any order.
+                // Disable FK checks so tables can be truncated regardless of order.
                 st.execute("SET session_replication_role = 'replica'");
-                for (String table : tables) {
-                    // Escape any double-quote characters in the table name to prevent
-                    // SQL injection via a maliciously crafted schema.
-                    String safe = table.replace("\"", "\"\"");
-                    st.execute("TRUNCATE TABLE public.\"" + safe
-                            + "\" RESTART IDENTITY CASCADE");
-                }
+                st.execute("TRUNCATE TABLE " + tableList + " RESTART IDENTITY CASCADE");
                 st.execute("SET session_replication_role = 'origin'");
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
             }
 
         } catch (Exception e) {
@@ -287,8 +304,19 @@ public class CrApiCommunityController extends ExternalSutController {
     }
 
     // -----------------------------------------------------------------------
-    // Helpers
+    // Helpers – DB properties
     // -----------------------------------------------------------------------
+
+    private String dbHost()     { return System.getProperty("db.host",     "localhost"); }
+    private String dbPort()     { return System.getProperty("db.port",     "5432"); }
+    private String dbName()     { return System.getProperty("db.name",     "crapi"); }
+    private String dbUser()     { return System.getProperty("db.user",     "admin"); }
+    private String dbPassword() { return System.getProperty("db.password", "crapisecretpassword"); }
+
+    /** Constructs the JDBC URL from individual db.* properties. */
+    private String dbJdbcUrl() {
+        return "jdbc:postgresql://" + dbHost() + ":" + dbPort() + "/" + dbName();
+    }
 
     /**
      * Reads the JWKS JSON file installed by {@code build-community-jar.sh} and
