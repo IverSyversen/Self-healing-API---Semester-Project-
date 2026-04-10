@@ -145,11 +145,13 @@ DRIVER_PID=$!
 
 info "Driver PID: ${DRIVER_PID}  (logs: ${OUTPUT_DIR}/driver.log)"
 
-# Wait until the driver REST API is reachable.
+# Wait until the driver TCP port is accepting connections.
+# The /controller/api/infoSUT endpoint returns a non-2xx status before EvoMaster
+# CLI has connected and started the SUT, so we check the port directly instead.
 info "Waiting for EvoMaster driver to be ready…"
 DRIVER_READY=false
 for _ in $(seq 1 60); do
-  if curl -sf "http://localhost:${DRIVER_PORT}/controller/api/infoSUT" > /dev/null 2>&1; then
+  if (echo >/dev/tcp/localhost/${DRIVER_PORT}) 2>/dev/null; then
     info "Driver is ready."
     DRIVER_READY=true
     break
