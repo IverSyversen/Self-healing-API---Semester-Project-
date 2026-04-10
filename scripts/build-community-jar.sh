@@ -29,11 +29,12 @@ info()  { echo "[INFO]  $*"; }
 error() { echo "[ERROR] $*" >&2; }
 
 # ---------------------------------------------------------------------------
-# Skip rebuild if JAR is already in place.
+# Skip rebuild only when both the JAR and the JWKS file are already in place.
+# If either is missing the full build and install must run.
 # ---------------------------------------------------------------------------
-if [[ -f "${JAR_TARGET}" ]]; then
-  info "Identity service JAR already present at ${JAR_TARGET} – skipping build."
-  info "Delete the file and re-run this script to force a rebuild."
+if [[ -f "${JAR_TARGET}" && -f "${JWKS_TARGET}" ]]; then
+  info "Identity service JAR and JWKS file already present – skipping build."
+  info "Delete ${JAR_TARGET} or ${JWKS_TARGET} and re-run this script to force a rebuild."
   exit 0
 fi
 

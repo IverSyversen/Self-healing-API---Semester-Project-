@@ -48,6 +48,7 @@ DB_PORT="5432"
 DB_NAME="crapi"
 DB_USER="admin"
 DB_PASS="crapisecretpassword"
+JWKS_FILE="/opt/crapi/jwks.json"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -90,7 +91,7 @@ trap cleanup EXIT
 # ---------------------------------------------------------------------------
 # Pre-flight checks
 # ---------------------------------------------------------------------------
-for f in "${EVOMASTER_CLI}" "${EVOMASTER_AGENT}" "${IDENTITY_JAR}" "${DRIVER_JAR}"; do
+for f in "${EVOMASTER_CLI}" "${EVOMASTER_AGENT}" "${IDENTITY_JAR}" "${DRIVER_JAR}" "${JWKS_FILE}"; do
   if [[ ! -f "${f}" ]]; then
     error "Required file not found: ${f}"
     error "Run scripts/setup-droplet.sh first."
@@ -146,9 +147,11 @@ info "Driver PID: ${DRIVER_PID}  (logs: ${OUTPUT_DIR}/driver.log)"
 
 # Wait until the driver REST API is reachable.
 info "Waiting for EvoMaster driver to be ready…"
+DRIVER_READY=false
 for _ in $(seq 1 60); do
   if curl -sf "http://localhost:${DRIVER_PORT}/api/infoSUT" > /dev/null 2>&1; then
     info "Driver is ready."
+    DRIVER_READY=true
     break
   fi
   if ! kill -0 "${DRIVER_PID}" 2>/dev/null; then
@@ -158,6 +161,12 @@ for _ in $(seq 1 60); do
   fi
   sleep 3
 done
+
+if [[ "${DRIVER_READY}" != "true" ]]; then
+  error "EvoMaster driver did not become ready within 180 s."
+  error "Check ${OUTPUT_DIR}/driver.log for details."
+  exit 1
+fi
 
 # ---------------------------------------------------------------------------
 # 4. Run EvoMaster CLI in white-box mode.
