@@ -131,7 +131,7 @@ mkdir -p "${OUTPUT_DIR}"
 info "Starting EvoMaster driver on port ${DRIVER_PORT}…"
 java \
   -Dsut.jar="${IDENTITY_JAR}" \
-  -Dagent.jar="${EVOMASTER_AGENT}" \
+  -Devomaster.instrumentation.jar.path="${EVOMASTER_AGENT}" \
   -Ddb.host="${DB_HOST}" \
   -Ddb.port="${DB_PORT}" \
   -Ddb.name="${DB_NAME}" \
