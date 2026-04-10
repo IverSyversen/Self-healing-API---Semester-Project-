@@ -41,8 +41,9 @@ import java.util.stream.Collectors;
  * <ul>
  *   <li>{@code sut.jar}    – absolute path to the identity-service fat JAR
  *       (default: {@code /opt/crapi/identity-service.jar})</li>
- *   <li>{@code agent.jar}  – absolute path to {@code evomaster-agent.jar}
- *       (default: {@code /opt/evomaster/evomaster-agent.jar})</li>
+ *   <li>{@code evomaster.instrumentation.jar.path} – absolute path to
+ *       {@code evomaster-agent.jar} used by the framework for bytecode instrumentation
+ *       (default searched automatically on classpath; set explicitly for reliability)</li>
  *   <li>{@code jwks.file}  – absolute path to the JWKS JSON file installed by the
  *       build script (default: {@code /opt/crapi/jwks.json})</li>
  *   <li>{@code db.host}    – PostgreSQL hostname (default: {@code localhost})</li>
@@ -92,10 +93,11 @@ public class CrApiCommunityController extends ExternalSutController {
     /**
      * JVM flags passed when spawning the identity service process.
      *
-     * <p>The EvoMaster agent MUST appear first.  All remaining flags pass the
-     * environment variables that the Spring Boot application.properties placeholders
-     * (e.g. {@code ${DB_HOST}}) require, so the service can start without a
-     * Docker-injected environment.
+     * <p>The EvoMaster agent is injected automatically by the framework using the path
+     * supplied via the {@code evomaster.instrumentation.jar.path} system property on the
+     * driver JVM.  All remaining flags pass the environment variables that the Spring Boot
+     * application.properties placeholders (e.g. {@code ${DB_HOST}}) require, so the
+     * service can start without a Docker-injected environment.
      *
      * <p>DB credentials are sourced from the same system properties used in
      * {@link #resetStateOfSUT()} so both the SUT and the reset logic always use
@@ -103,10 +105,7 @@ public class CrApiCommunityController extends ExternalSutController {
      */
     @Override
     public String[] getJVMParameters() {
-        String agentJar = System.getProperty("agent.jar",
-                "/opt/evomaster/evomaster-agent.jar");
         return new String[]{
-                "-javaagent:" + agentJar,
                 // Server port (overridden via CLI arg in getInputParameters too)
                 "-DSERVER_PORT=" + SUT_PORT,
                 // PostgreSQL – sourced from same system properties as resetStateOfSUT()
