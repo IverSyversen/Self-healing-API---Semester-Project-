@@ -115,8 +115,14 @@ public class CrApiCommunityController extends ExternalSutController {
                 // Allow the EvoMaster agent to access JDK internals via reflection.
                 // Required on Java 9+ where the module system restricts reflective
                 // access to java.base packages that the instrumentation agent needs.
+                // java.util.regex must be opened so that MatcherClassReplacement can
+                // initialize; without it the static initializer NPEs, which permanently
+                // breaks the class and causes every subsequent instrumentation to fail
+                // with "Could not initialize class MatcherClassReplacement", leaving
+                // null entries in the units-info map and an HTTP 500 from the driver.
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.util.regex=ALL-UNNAMED",
                 "--add-opens=java.base/java.io=ALL-UNNAMED",
                 // Server port (overridden via CLI arg in getInputParameters too)
                 "-DSERVER_PORT=" + SUT_PORT,

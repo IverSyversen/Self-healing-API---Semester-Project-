@@ -122,7 +122,7 @@ docker compose \
 info "Waiting for crAPI identity service to become ready (up to 120 s)…"
 IDENTITY_READY=false
 for _ in $(seq 1 24); do
-  if docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" logs crapi-identity 2>/dev/null \
+  if docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" logs --no-follow crapi-identity 2>/dev/null \
       | grep -q "Started CRAPIBootApplication"; then
     IDENTITY_READY=true
     break
