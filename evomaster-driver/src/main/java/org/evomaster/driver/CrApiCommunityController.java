@@ -99,6 +99,12 @@ public class CrApiCommunityController extends ExternalSutController {
      * application.properties placeholders (e.g. {@code ${DB_HOST}}) require, so the
      * service can start without a Docker-injected environment.
      *
+     * <p>{@code --add-opens} flags are required on Java 9+ to allow the EvoMaster
+     * instrumentation agent to perform reflective access to JDK internals
+     * (e.g. {@code ClassLoader.findLoadedClass}) that are encapsulated by the module
+     * system.  Without these flags the agent fails with
+     * {@code InaccessibleObjectException} and the SUT cannot start.
+     *
      * <p>DB credentials are sourced from the same system properties used in
      * {@link #resetStateOfSUT()} so both the SUT and the reset logic always use
      * identical credentials.
@@ -106,6 +112,12 @@ public class CrApiCommunityController extends ExternalSutController {
     @Override
     public String[] getJVMParameters() {
         return new String[]{
+                // Allow the EvoMaster agent to access JDK internals via reflection.
+                // Required on Java 9+ where the module system restricts reflective
+                // access to java.base packages that the instrumentation agent needs.
+                "--add-opens=java.base/java.lang=ALL-UNNAMED",
+                "--add-opens=java.base/java.util=ALL-UNNAMED",
+                "--add-opens=java.base/java.io=ALL-UNNAMED",
                 // Server port (overridden via CLI arg in getInputParameters too)
                 "-DSERVER_PORT=" + SUT_PORT,
                 // PostgreSQL – sourced from same system properties as resetStateOfSUT()
