@@ -112,9 +112,30 @@ docker compose \
   -f "${REPO_ROOT}/docker-compose.evomaster.yml" \
   up -d --remove-orphans
 
-# Give services a moment to initialise.
-info "Waiting 15 s for services to initialise…"
-sleep 15
+# Wait until the crapi-identity container has fully started and seeded the
+# vehicle catalog (vehicle_company / vehicle_model tables).  The Spring Boot
+# application takes ~30 s just to start, so a fixed 15-second sleep is never
+# enough.  Instead, poll the Docker logs for the "Started CRAPIBootApplication"
+# banner (emitted after ApplicationReadyEvent, immediately before
+# InitialDataConfig.setup() seeds the database) then wait an additional 20 s
+# for the seeding to complete.  Total timeout: 120 s.
+info "Waiting for crAPI identity service to become ready (up to 120 s)…"
+IDENTITY_READY=false
+for _ in $(seq 1 24); do
+  if docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" logs crapi-identity 2>/dev/null \
+      | grep -q "Started CRAPIBootApplication"; then
+    IDENTITY_READY=true
+    break
+  fi
+  sleep 5
+done
+
+if [[ "${IDENTITY_READY}" == "true" ]]; then
+  info "crAPI identity service started; waiting 20 s for data seeding to complete…"
+  sleep 20
+else
+  warning "crAPI identity service did not start within 120 s; proceeding anyway…"
+fi
 
 # ---------------------------------------------------------------------------
 # 2. Stop the Docker-managed identity service so we can claim port ${SUT_PORT}.

@@ -248,7 +248,13 @@ public class CrApiCommunityController extends ExternalSutController {
                     String name = rs.getString("TABLE_NAME");
                     if (!name.startsWith("flyway_")
                             && !name.equals("databasechangelog")
-                            && !name.equals("databasechangeloglock")) {
+                            && !name.equals("databasechangeloglock")
+                            // Seed/catalog tables populated by InitialDataConfig on first
+                            // startup.  Truncating them breaks vehicle creation in every
+                            // subsequent API call and makes the SUT fail after the first
+                            // EvoMaster reset cycle.
+                            && !name.equals("vehicle_company")
+                            && !name.equals("vehicle_model")) {
                         tables.add(name);
                     }
                 }
