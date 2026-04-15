@@ -29,6 +29,14 @@
     </properties>
 
     <dependencies>
+        <!-- White-box driver classes referenced by EvoMaster-generated tests -->
+        <dependency>
+            <groupId>org.evomaster</groupId>
+            <artifactId>crapi-community-driver</artifactId>
+            <version>1.0.0</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- EvoMaster client library: helpers used by generated tests -->
         <dependency>
             <groupId>org.evomaster</groupId>
@@ -87,6 +95,17 @@
                 <configuration>
                     <testFailureIgnore>true</testFailureIgnore>
                     <reportsDirectory>${project.build.directory}/surefire-reports</reportsDirectory>
+                    <!-- EvoMaster appends suffixes (_successes, _faults, _others) after
+                         the test suite name, so the class names do not end with "Test".
+                         These includes cover both the default Surefire patterns and every
+                         EvoMaster-generated naming variant. -->
+                    <includes>
+                        <include>**/Test*.java</include>
+                        <include>**/*Test.java</include>
+                        <include>**/*Tests.java</include>
+                        <include>**/*TestCase.java</include>
+                        <include>**/*Test_*.java</include>
+                    </includes>
                 </configuration>
             </plugin>
 

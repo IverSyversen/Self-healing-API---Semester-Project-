@@ -14,3 +14,9 @@ out/
 # OS artifacts
 .DS_Store
 Thumbs.db
+
+# EvoMaster generated tests and report output
+generated_tests/
+
+# Maven test source tree populated by run-report.sh
+test-runner/src/
