@@ -32,6 +32,7 @@ SUT_BASE_URL="http://localhost:8080"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 RUNNER_DIR="${REPO_ROOT}/test-runner"
+DRIVER_DIR="${REPO_ROOT}/evomaster-driver"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -76,6 +77,11 @@ if [[ ! -f "${RUNNER_DIR}/pom.xml" ]]; then
   exit 1
 fi
 
+if [[ ! -f "${DRIVER_DIR}/pom.xml" ]]; then
+  error "evomaster-driver/pom.xml not found at ${DRIVER_DIR}"
+  exit 1
+fi
+
 # ---------------------------------------------------------------------------
 # 1. Detect the Java package declared in the generated .java files.
 # ---------------------------------------------------------------------------
@@ -117,6 +123,12 @@ cp "${TESTS_DIR}"/*.java "${TEST_SRC_DIR}/"
 #    testFailureIgnore=true ensures the build continues to the report phase
 #    even when tests fail (expected for security/fault tests).
 # ---------------------------------------------------------------------------
+info "Installing EvoMaster driver artifact for generated test classpath …"
+mvn -f "${DRIVER_DIR}/pom.xml" \
+    --batch-mode \
+    -DskipTests \
+    install
+
 info "Running JUnit 5 tests with Maven Surefire …"
 mvn -f "${RUNNER_DIR}/pom.xml" \
     --batch-mode \

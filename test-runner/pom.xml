@@ -29,6 +29,14 @@
     </properties>
 
     <dependencies>
+        <!-- White-box driver classes referenced by EvoMaster-generated tests -->
+        <dependency>
+            <groupId>org.evomaster</groupId>
+            <artifactId>crapi-community-driver</artifactId>
+            <version>1.0.0</version>
+            <scope>test</scope>
+        </dependency>
+
         <!-- EvoMaster client library: helpers used by generated tests -->
         <dependency>
             <groupId>org.evomaster</groupId>
