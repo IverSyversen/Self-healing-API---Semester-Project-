@@ -159,7 +159,7 @@ java \
   -Ddb.name="${DB_NAME}" \
   -Ddb.user="${DB_USER}" \
   -Ddb.password="${DB_PASS}" \
-  -Dopenapi.url="http://localhost:${SUT_PORT}/v3/api-docs" \
+  -Dopenapi.url="https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json" \
   -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
   > "${OUTPUT_DIR}/driver.log" 2>&1 &
 DRIVER_PID=$!
