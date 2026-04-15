@@ -52,8 +52,8 @@ import java.util.stream.Collectors;
  *   <li>{@code db.user}    – PostgreSQL username (default: {@code admin})</li>
  *   <li>{@code db.password} – PostgreSQL password
  *       (default: {@code crapisecretpassword})</li>
- *   <li>{@code openapi.url} – URL of the OpenAPI spec served by the SUT
- *       (default: {@code http://localhost:8080/v3/api-docs})</li>
+     *   <li>{@code openapi.url} – URL of the OpenAPI spec used by EvoMaster
+     *       (default: public crAPI spec in OWASP repository)</li>
  * </ul>
  */
 public class CrApiCommunityController extends ExternalSutController {
@@ -303,7 +303,7 @@ public class CrApiCommunityController extends ExternalSutController {
     @Override
     public ProblemInfo getProblemInfo() {
         String openapiUrl = System.getProperty("openapi.url",
-                "http://localhost:" + SUT_PORT + "/v3/api-docs");
+                "https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json");
         return new RestProblem(openapiUrl, null);
     }
 
