@@ -121,11 +121,31 @@ The script:
 
 #### Viewing the Report
 
+`run-whitebox.sh` automatically calls `run-report.sh` at the end of a session,
+which compiles and runs the generated tests and produces an HTML Surefire report.
+
+The report is written to `generated_tests/surefire-report.html`.  Serve it with:
+
 ```bash
 cd generated_tests
 python3 -m http.server 8000
-# Open http://<droplet-ip>:8000 in a browser
+# Open http://<droplet-ip>:8000/surefire-report.html in a browser
 ```
+
+To regenerate the report from an existing `generated_tests/` folder (e.g. after
+stopping a previous run) without running EvoMaster again:
+
+```bash
+# Default: uses ./generated_tests and targets http://localhost:8080
+bash scripts/run-report.sh
+
+# Custom tests directory and SUT URL
+bash scripts/run-report.sh --tests-dir /opt/results/evomaster \
+                            --sut-base-url http://localhost:8080
+```
+
+The report shows pass/fail counts for each test class
+(`_faults`, `_others`, `_successes`) plus per-test details and stack traces.
 
 #### Key Files
 
@@ -133,11 +153,13 @@ python3 -m http.server 8000
 |---|---|
 | `evomaster-driver/pom.xml` | Maven project for the EvoMaster driver |
 | `evomaster-driver/src/…/CrApiCommunityController.java` | `ExternalSutController` implementation |
+| `test-runner/pom.xml` | Maven project that compiles and runs generated tests, produces Surefire HTML report |
 | `docker-compose.evomaster.yml` | Docker Compose with identity service managed externally |
 | `scripts/setup-droplet.sh` | One-time droplet setup (Java, Maven, artifacts, driver build) |
 | `scripts/download-evomaster.sh` | Downloads EvoMaster CLI and agent JARs |
 | `scripts/build-community-jar.sh` | Builds the crAPI identity service fat JAR |
 | `scripts/run-whitebox.sh` | Orchestrates a full white-box test-generation run |
+| `scripts/run-report.sh` | Compiles generated tests and produces the HTML Surefire report |
 
 #### White-Box vs Black-Box
 
