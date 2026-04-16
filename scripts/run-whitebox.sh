@@ -68,15 +68,13 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Auto-detect a Postman collection installed by setup-droplet.sh if the caller
-# did not supply --seed-file.  Missing collection → fall back to OpenAPI
-# examples, which is always available via getProblemInfo().
-if [[ -z "${SEED_FILE}" ]]; then
-  if [[ -f /opt/crapi/postman/crapi.postman_collection.json ]]; then
-    SEED_FILE=/opt/crapi/postman/crapi.postman_collection.json
-    SEED_FORMAT=POSTMAN
-  fi
-fi
+# NOTE: Auto-detection of the crAPI Postman collection has been disabled.
+# EvoMaster 3.3.0 has a bug in PostmanParser.parseTestCases (PostmanParser.kt:172)
+# where it throws a NullPointerException when the collection contains items with
+# null response arrays (common in the OWASP crAPI default collection).  Until
+# that upstream bug is fixed, Postman seeding must be opted in explicitly via
+# the --seed-file flag with a collection that has been sanitised.
+# To re-enable: bash scripts/run-whitebox.sh --seed-file /path/to/collection.json
 
 TIME_BUDGET="${TIME_BUDGET_MINUTES}m"
 
@@ -129,15 +127,18 @@ docker compose \
   up -d --remove-orphans
 
 # Wait until the crapi-identity container has fully started and seeded the
-# vehicle catalog (vehicle_company / vehicle_model tables).  The Spring Boot
-# application takes ~30 s just to start, so a fixed 15-second sleep is never
-# enough.  Instead, poll the Docker logs for the "Started CRAPIBootApplication"
-# banner (emitted after ApplicationReadyEvent, immediately before
-# InitialDataConfig.setup() seeds the database) then wait an additional 20 s
-# for the seeding to complete.  Total timeout: 120 s.
-info "Waiting for crAPI identity service to become ready (up to 120 s)…"
+# vehicle catalog (vehicle_company / vehicle_model tables).
+#
+# Strategy (avoids a hard fixed sleep):
+#   1. Poll Docker logs for the "Started CRAPIBootApplication" banner.
+#      Max wait: 90 s (18 × 5 s).  Spring Boot typically prints this in <40 s.
+#   2. Once the banner appears, poll the identity service's HTTP login endpoint
+#      until it responds (any HTTP status) – this confirms the HTTP server is
+#      actually accepting connections and InitialDataConfig has finished running.
+#      Max extra wait: 30 s (30 × 1 s).
+info "Waiting for crAPI identity service to become ready (up to 90 s)…"
 IDENTITY_READY=false
-for _ in $(seq 1 24); do
+for _ in $(seq 1 18); do
   if docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" logs --no-follow crapi-identity 2>/dev/null \
       | grep -q "Started CRAPIBootApplication"; then
     IDENTITY_READY=true
@@ -147,10 +148,27 @@ for _ in $(seq 1 24); do
 done
 
 if [[ "${IDENTITY_READY}" == "true" ]]; then
-  info "crAPI identity service started; waiting 20 s for data seeding to complete…"
-  sleep 20
+  info "crAPI identity service banner seen; waiting for HTTP endpoint to accept connections…"
+  HTTP_UP=false
+  for _ in $(seq 1 30); do
+    # Any HTTP response (even 400/401/500) means the server is up and
+    # seeding is done.  -s = silent, no -f so we don't fail on 4xx/5xx.
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+         "http://localhost:${SUT_PORT}/identity/api/auth/login" \
+         -X POST -H "Content-Type: application/json" -d '{}' 2>/dev/null || true)
+    if [[ "${HTTP_CODE}" =~ ^[0-9]{3}$ ]]; then
+      HTTP_UP=true
+      break
+    fi
+    sleep 1
+  done
+  if [[ "${HTTP_UP}" == "true" ]]; then
+    info "crAPI identity service is accepting HTTP connections."
+  else
+    info "HTTP endpoint did not respond within 30 s; proceeding anyway…"
+  fi
 else
-  warning "crAPI identity service did not start within 120 s; proceeding anyway…"
+  warning "crAPI identity service did not start within 90 s; proceeding anyway…"
 fi
 
 # ---------------------------------------------------------------------------
@@ -253,7 +271,7 @@ java -jar "${EVOMASTER_CLI}" \
   --maxTime "${TIME_BUDGET}" \
   --outputFolder "${OUTPUT_DIR}" \
   --outputFormat JAVA_JUNIT_5 \
-  --testSuiteFileName CrApiCommunityEvoMasterTest \
+  --testSuiteName CrApiCommunityEvoMasterTest \
   --enableBasicAssertions true \
   --security true \
   --schemaOracles true \
