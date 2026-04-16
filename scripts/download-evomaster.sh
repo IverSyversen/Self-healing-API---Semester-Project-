@@ -5,14 +5,14 @@
 # Downloads the EvoMaster CLI JAR from the official GitHub releases page and
 # the Java bytecode-instrumentation agent from Maven Central.
 #
-# Artifacts are placed in /opt/evomaster/:
-#   /opt/evomaster/evomaster.jar        – CLI used to run test generation
-#   /opt/evomaster/evomaster-agent.jar  – Java agent for white-box instrumentation
+# Artifacts are placed in ${INSTALL_DIR} (default /opt/evomaster):
+#   ${INSTALL_DIR}/evomaster.jar        – CLI used to run test generation
+#   ${INSTALL_DIR}/evomaster-agent.jar  – Java agent for white-box instrumentation
 # =============================================================================
 set -euo pipefail
 
-EVOMASTER_VERSION="3.3.0"
-INSTALL_DIR="/opt/evomaster"
+EVOMASTER_VERSION="${EVOMASTER_VERSION:-5.1.0}"
+INSTALL_DIR="${EVOMASTER_DIR:-/opt/evomaster}"
 BASE_URL="https://github.com/WebFuzzing/EvoMaster/releases/download/v${EVOMASTER_VERSION}"
 MAVEN_CENTRAL_URL="https://repo1.maven.org/maven2/org/evomaster"
 

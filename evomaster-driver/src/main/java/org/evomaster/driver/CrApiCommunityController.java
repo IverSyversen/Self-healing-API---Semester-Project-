@@ -4,13 +4,12 @@ import org.evomaster.client.java.controller.ExternalSutController;
 import org.evomaster.client.java.controller.InstrumentedSutStarter;
 import org.evomaster.client.java.controller.api.dto.SutInfoDto;
 import org.evomaster.client.java.controller.api.dto.auth.AuthenticationDto;
-import org.evomaster.client.java.controller.api.dto.auth.HttpVerb;
-import org.evomaster.client.java.controller.api.dto.auth.LoginEndpointDto;
-import org.evomaster.client.java.controller.api.dto.auth.TokenHandlingDto;
 import org.evomaster.client.java.controller.api.dto.database.schema.DatabaseType;
 import org.evomaster.client.java.controller.problem.ProblemInfo;
 import org.evomaster.client.java.controller.problem.RestProblem;
 import org.evomaster.client.java.sql.DbSpecification;
+import com.webfuzzing.commons.auth.LoginEndpoint;
+import com.webfuzzing.commons.auth.TokenHandling;
 
 import java.nio.file.Files;
 import java.nio.file.Paths;
@@ -18,6 +17,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -158,6 +158,7 @@ public class CrApiCommunityController extends ExternalSutController {
     public String[] getJVMParameters() {
         String sutXms = System.getProperty("sut.jvm.xms", "256m");
         String sutXmx = System.getProperty("sut.jvm.xmx", "768m");
+        String smtpPass = System.getProperty("smtp.pass", "evomaster-local");
         return new String[]{
                 "-Xms" + sutXms,
                 "-Xmx" + sutXmx,
@@ -181,7 +182,7 @@ public class CrApiCommunityController extends ExternalSutController {
                 "-DSMTP_STARTTLS=false",
                 "-DSMTP_FROM=no-reply@example.com",
                 "-DSMTP_EMAIL=no-reply@example.com",
-                "-DSMTP_PASS=",
+                "-DSMTP_PASS=" + smtpPass,
                 "-DSMTP_HOST=localhost",
                 "-DSMTP_PORT=1025",
                 "-DMAILHOG_HOST=localhost",
@@ -214,7 +215,10 @@ public class CrApiCommunityController extends ExternalSutController {
 
     @Override
     public String getLogMessageOfInitializedServer() {
-        return "Starting CRAPIBootApplication";
+        // "Starting ..." appears too early (before the embedded server is ready).
+        // Waiting for "Started ..." prevents EvoMaster from sending traffic while
+        // Spring is still bootstrapping.
+        return "Started CRAPIBootApplication";
     }
 
     @Override
@@ -377,35 +381,60 @@ public class CrApiCommunityController extends ExternalSutController {
      * </ul>
      */
     private void seedUsers() {
-        // crAPI's identity-service user table historically is "user_login" in
-        // older releases and "user_details" in newer ones.  We issue the insert
-        // against both names and swallow "relation does not exist" so the
-        // driver works across crAPI versions without modification.
         try (Connection conn = DriverManager.getConnection(dbJdbcUrl(), dbUser(), dbPassword())) {
             conn.setAutoCommit(false);
             try {
-                insertSeedUsersInto(conn, "user_login");
-                insertSeedUsersInto(conn, "user_details");
+                if (tableExists(conn, "user_login") && sequenceExists(conn, "user_login_id_seq")) {
+                    seedUsersCurrentSchema(conn);
+                } else {
+                    seedUsersLegacySchema(conn);
+                }
                 conn.commit();
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
             }
         } catch (Exception e) {
-            // Same policy as Mongo: best-effort.  A failure here just means
-            // authenticated tests won't work in this run – anonymous
-            // black-box-equivalent tests still will.
             System.err.println("[driver] Seed users skipped: " + e.getMessage());
         }
     }
 
-    private void insertSeedUsersInto(Connection conn, String table) {
-        // Minimal column set covering both known schemas.  Columns that are
-        // NOT NULL in one version but absent in another are protected with
-        // a SAVEPOINT so a single column mismatch doesn't abort the batch.
-        String sql = "INSERT INTO public." + table
-                + " (email, number, password, role) VALUES (?,?,?,?)"
-                + " ON CONFLICT DO NOTHING";
+    private void seedUsersCurrentSchema(Connection conn) throws SQLException {
+        String insertLogin = "INSERT INTO public.user_login "
+                + "(id, email, number, password, role) "
+                + "VALUES (nextval('public.user_login_id_seq'), ?, ?, ?, ?) "
+                + "RETURNING id";
+        String insertDetails = "INSERT INTO public.user_details "
+                + "(id, available_credit, name, status, user_id) "
+                + "VALUES (nextval('public.user_details_id_seq'), ?, ?, ?, ?)";
+
+        try (PreparedStatement loginPs = conn.prepareStatement(insertLogin);
+             PreparedStatement detailsPs = conn.prepareStatement(insertDetails)) {
+            for (SeedUser u : SEED_USERS) {
+                loginPs.setString(1, u.email);
+                loginPs.setString(2, u.phone);
+                loginPs.setString(3, SEED_PASSWORD_BCRYPT);
+                loginPs.setShort(4, roleOrdinal(u.role));
+
+                long userId;
+                try (ResultSet rs = loginPs.executeQuery()) {
+                    if (!rs.next()) {
+                        throw new SQLException("Failed to insert user_login row for " + u.email);
+                    }
+                    userId = rs.getLong(1);
+                }
+
+                detailsPs.setDouble(1, 10_000.0);
+                detailsPs.setString(2, u.name);
+                detailsPs.setString(3, "ACTIVE");
+                detailsPs.setLong(4, userId);
+                detailsPs.executeUpdate();
+            }
+        }
+    }
+
+    private void seedUsersLegacySchema(Connection conn) throws SQLException {
+        String sql = "INSERT INTO public.user_login (email, number, password, role) VALUES (?,?,?,?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             for (SeedUser u : SEED_USERS) {
                 ps.setString(1, u.email);
@@ -415,9 +444,34 @@ public class CrApiCommunityController extends ExternalSutController {
                 ps.addBatch();
             }
             ps.executeBatch();
-        } catch (Exception ignored) {
-            // Table doesn't exist on this crAPI version – caller handles.
         }
+    }
+
+    private boolean tableExists(Connection conn, String tableName) throws SQLException {
+        String sql = "SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, tableName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private boolean sequenceExists(Connection conn, String sequenceName) throws SQLException {
+        String sql = "SELECT 1 FROM information_schema.sequences WHERE sequence_schema = 'public' AND sequence_name = ?";
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, sequenceName);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private short roleOrdinal(String role) {
+        if ("mechanic".equalsIgnoreCase(role)) {
+            return 1;
+        }
+        return 0;
     }
 
     // -----------------------------------------------------------------------
@@ -514,21 +568,23 @@ public class CrApiCommunityController extends ExternalSutController {
     private static AuthenticationDto buildLogin(String name, SeedUser u) {
         AuthenticationDto auth = new AuthenticationDto(name);
 
-        LoginEndpointDto login = new LoginEndpointDto();
-        login.endpoint    = "/identity/api/auth/login";
-        login.verb        = HttpVerb.POST;
-        login.contentType = "application/json";
-        login.payloadRaw  = "{\"email\":\"" + u.email
-                + "\",\"password\":\"" + SEED_PASSWORD_PLAIN + "\"}";
-        login.expectCookies = false;
+        LoginEndpoint login = new LoginEndpoint();
+        login.setEndpoint("/identity/api/auth/login");
+        login.setVerb(LoginEndpoint.HttpVerb.POST);
+        login.setContentType("application/json");
+        login.setPayloadRaw("{\"email\":\"" + u.email
+                + "\",\"password\":\"" + SEED_PASSWORD_PLAIN + "\"}");
+        login.setExpectCookies(false);
 
-        TokenHandlingDto token = new TokenHandlingDto();
-        token.extractFromField = "/token";
-        token.httpHeaderName   = "Authorization";
-        token.headerPrefix     = "Bearer ";
-        login.token = token;
+        TokenHandling token = new TokenHandling();
+        token.setExtractFrom(TokenHandling.ExtractFrom.BODY);
+        token.setExtractSelector("/token");
+        token.setSendIn(TokenHandling.SendIn.HEADER);
+        token.setSendName("Authorization");
+        token.setSendTemplate("Bearer {}");
+        login.setToken(token);
 
-        auth.loginEndpointAuth = login;
+        auth.setLoginEndpointAuth(login);
         return auth;
     }
 

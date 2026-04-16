@@ -16,10 +16,10 @@ configs:  {} # remove this {} when specifying properties
 #   header0: ""
 #   header1: ""
 #   header2: ""
-#   maxTime: "5m"
+#   maxTime: "60m"
 #   outputFilePrefix: "CrApiCommunityEvoMasterTest"
-#   outputFileSuffix: "Test"
-#   outputFolder: "/Users/oliverrokkedal/Documents/Github/Self-healing-API---Semester-Project-/generated_tests_local"
+#   outputFileSuffix: ""
+#   outputFolder: "/opt/Self-healing-API---Semester-Project-/generated_tests"
 #   outputFormat: "JAVA_JUNIT_5"
 #   prematureStop: ""
 #   ratePerMinute: 0

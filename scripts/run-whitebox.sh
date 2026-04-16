@@ -38,10 +38,11 @@ SEED=12345
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-EVOMASTER_DIR="/opt/evomaster"
+EVOMASTER_DIR="${EVOMASTER_DIR:-/opt/evomaster}"
 EVOMASTER_CLI="${EVOMASTER_DIR}/evomaster.jar"
 EVOMASTER_AGENT="${EVOMASTER_DIR}/evomaster-agent.jar"
-IDENTITY_JAR="/opt/crapi/identity-service.jar"
+CRAPI_DIR="${CRAPI_DIR:-/opt/crapi}"
+IDENTITY_JAR="${CRAPI_DIR}/identity-service.jar"
 DRIVER_JAR="${REPO_ROOT}/evomaster-driver/target/crapi-community-driver-1.0.0.jar"
 
 DRIVER_PORT=40100
@@ -51,12 +52,16 @@ DB_PORT="5432"
 DB_NAME="crapi"
 DB_USER="admin"
 DB_PASS="crapisecretpassword"
-JWKS_FILE="/opt/crapi/jwks.json"
+JWKS_FILE="${CRAPI_DIR}/jwks.json"
 EM_XMS="${EM_XMS:-256m}"
 EM_XMX="${EM_XMX:-1024m}"
 RESET_MONGO="${RESET_MONGO:-false}"
 SEED_USERS="${SEED_USERS:-true}"
 EM_EXPERIMENTAL="${EM_EXPERIMENTAL:-false}"
+EM_DISABLE_IMPACT_MUTATION="${EM_DISABLE_IMPACT_MUTATION:-true}"
+JAVA_BIN="${JAVA_BIN:-}"
+SUT_STARTUP_TIMEOUT_SECONDS="${SUT_STARTUP_TIMEOUT_SECONDS:-600}"
+SUT_INSTRUMENTATION_TIMEOUT_MS="${SUT_INSTRUMENTATION_TIMEOUT_MS:-300000}"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -97,18 +102,24 @@ error()   { echo "[ERROR] $*" >&2; }
 
 DRIVER_PID=""
 
-kill_host_identity_processes() {
-  local pids=()
-  mapfile -t pids < <(
-    ps -eo pid=,args= \
-      | awk -v sut_port="${SUT_PORT}" '
-          $0 ~ /[j]ava/ &&
-          $0 ~ /\/opt\/crapi\/identity-service\.jar/ &&
-          index($0, "--server.port=" sut_port) > 0 {print $1}
-        '
-  )
+resolve_java_bin() {
+  if [[ -n "${JAVA_BIN}" ]]; then
+    return
+  fi
+  if command -v /usr/libexec/java_home >/dev/null 2>&1; then
+    local java21_home=""
+    java21_home="$(/usr/libexec/java_home -v 21 2>/dev/null || true)"
+    if [[ -n "${java21_home}" && -x "${java21_home}/bin/java" ]]; then
+      JAVA_BIN="${java21_home}/bin/java"
+      return
+    fi
+  fi
+  JAVA_BIN="$(command -v java)"
+}
 
-  for pid in "${pids[@]}"; do
+kill_host_identity_processes() {
+  while IFS= read -r pid; do
+    [[ -z "${pid}" ]] && continue
     if kill -0 "${pid}" 2>/dev/null; then
       warning "Stopping stale host identity-service.jar process on port ${SUT_PORT} (PID ${pid})…"
       kill "${pid}" || true
@@ -118,12 +129,27 @@ kill_host_identity_processes() {
         kill -9 "${pid}" || true
       fi
     fi
-  done
+  done < <(
+    ps -eo pid=,args= \
+      | awk -v sut_port="${SUT_PORT}" -v identity_jar="${IDENTITY_JAR}" '
+          $0 ~ /[j]ava/ &&
+          index($0, identity_jar) > 0 &&
+          index($0, "--server.port=" sut_port) > 0 {print $1}
+        '
+  )
 }
 
 port_is_listening() {
   local port="$1"
-  ss -ltn "sport = :${port}" 2>/dev/null | awk 'NR>1 {found=1} END {exit(found ? 0 : 1)}'
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn "sport = :${port}" 2>/dev/null | awk 'NR>1 {found=1} END {exit(found ? 0 : 1)}'
+    return $?
+  fi
+  if command -v lsof >/dev/null 2>&1; then
+    lsof -nP -iTCP:"${port}" -sTCP:LISTEN >/dev/null 2>&1
+    return $?
+  fi
+  return 1
 }
 
 choose_driver_port() {
@@ -176,6 +202,18 @@ if ! command -v docker &>/dev/null; then
   exit 1
 fi
 
+if ! docker info >/dev/null 2>&1; then
+  error "Docker daemon is not running. Start Docker Desktop and re-run."
+  exit 1
+fi
+
+resolve_java_bin
+if [[ -z "${JAVA_BIN}" || ! -x "${JAVA_BIN}" ]]; then
+  error "Could not resolve a usable Java runtime."
+  exit 1
+fi
+info "Using Java runtime: ${JAVA_BIN}"
+
 # ---------------------------------------------------------------------------
 # 1. Ensure only infra dependencies are running for white-box mode.
 #    Running the full stack while stopping containerized identity causes
@@ -186,10 +224,10 @@ docker compose \
   -f "${REPO_ROOT}/docker-compose.evomaster.yml" \
   up -d --remove-orphans postgres mongodb mailhog
 
-# Stop service containers that depend on Docker-managed identity. White-box mode
-# runs identity-service.jar on the host instead.
+# Stop web/workshop containers that depend on Docker-managed identity.
+# Keep community running because the host identity service calls it.
 docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" stop \
-  crapi-web crapi-workshop crapi-community crapi-identity >/dev/null 2>&1 || true
+  crapi-web crapi-workshop crapi-identity >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # 2. Stop the Docker-managed identity service so we can claim port ${SUT_PORT}.
@@ -216,17 +254,20 @@ mkdir -p "${OUTPUT_DIR}"
 DRIVER_READY=false
 for attempt in $(seq 1 6); do
   info "Starting EvoMaster driver on port ${DRIVER_PORT}…"
-  java \
+  PATH="$(dirname "${JAVA_BIN}"):${PATH}" "${JAVA_BIN}" \
     -Dsut.jar="${IDENTITY_JAR}" \
     -Devomaster.instrumentation.jar.path="${EVOMASTER_AGENT}" \
+    -Dsut.startup.timeout.seconds="${SUT_STARTUP_TIMEOUT_SECONDS}" \
+    -Dsut.instrumentation.socket.timeout.ms="${SUT_INSTRUMENTATION_TIMEOUT_MS}" \
     -Ddb.host="${DB_HOST}" \
     -Ddb.port="${DB_PORT}" \
     -Ddb.name="${DB_NAME}" \
-  -Ddb.user="${DB_USER}" \
-  -Ddb.password="${DB_PASS}" \
-  -Dreset.mongo="${RESET_MONGO}" \
-  -Dseed.users="${SEED_USERS}" \
-  -Ddriver.disable.sql.spec=true \
+    -Ddb.user="${DB_USER}" \
+    -Ddb.password="${DB_PASS}" \
+    -Djwks.file="${JWKS_FILE}" \
+    -Dreset.mongo="${RESET_MONGO}" \
+    -Dseed.users="${SEED_USERS}" \
+    -Ddriver.disable.sql.spec=true \
     -Dopenapi.url="https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json" \
     -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
     > "${OUTPUT_DIR}/driver.log" 2>&1 &
@@ -236,7 +277,9 @@ for attempt in $(seq 1 6); do
   info "Waiting for EvoMaster driver to be ready…"
 
   for _ in $(seq 1 60); do
-    if (echo >/dev/tcp/localhost/${DRIVER_PORT}) 2>/dev/null; then
+    status_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 \
+      "http://localhost:${DRIVER_PORT}/controller/api/controllerInfo" || true)"
+    if [[ "${status_code}" =~ ^[23][0-9][0-9]$ ]]; then
       info "Driver is ready."
       DRIVER_READY=true
       break
@@ -331,7 +374,21 @@ if [[ "${EM_EXPERIMENTAL}" == "true" ]]; then
   )
 fi
 
-java -Xms"${EM_XMS}" -Xmx"${EM_XMX}" -jar "${EVOMASTER_CLI}" \
+STABILITY_ARGS=()
+if [[ "${EM_DISABLE_IMPACT_MUTATION}" == "true" ]]; then
+  # EvoMaster 5.1.0 can crash on some OpenAPI enum mutations
+  # (Invalid gene type StringGene in EnumGene.containsSameValueAs).
+  # Disabling impact/archive-based mutation avoids that unstable code path.
+  STABILITY_ARGS=(
+    --doCollectImpact false
+    --archiveGeneMutation NONE
+  )
+fi
+
+set +u
+set +e
+EVOMASTER_LOG="${OUTPUT_DIR}/evomaster.log"
+"${JAVA_BIN}" -Xms"${EM_XMS}" -Xmx"${EM_XMX}" -jar "${EVOMASTER_CLI}" \
   --blackBox false \
   --problemType REST \
   --sutControllerHost localhost \
@@ -341,9 +398,28 @@ java -Xms"${EM_XMS}" -Xmx"${EM_XMX}" -jar "${EVOMASTER_CLI}" \
   --outputFormat JAVA_JUNIT_5 \
   --outputFilePrefix CrApiCommunityEvoMasterTest \
   --enableBasicAssertions true \
+  "${STABILITY_ARGS[@]}" \
   "${EXPERIMENTAL_ARGS[@]}" \
   --seed "${SEED}" \
-  "${SEED_ARGS[@]}"
+  "${SEED_ARGS[@]}" | tee "${EVOMASTER_LOG}"
+EM_EXIT=${PIPESTATUS[0]}
+set -e
+set -u
+
+if [[ "${EM_EXIT}" -ne 0 ]]; then
+  error "EvoMaster failed (exit ${EM_EXIT}). Logs: ${EVOMASTER_LOG}"
+  if curl -fsS --max-time 3 "http://localhost:${SUT_PORT}/identity/api/v2/user/dashboard" >/dev/null 2>&1; then
+    warning "SUT endpoint still reachable after EvoMaster failure."
+  else
+    warning "SUT endpoint is NOT reachable after EvoMaster failure."
+  fi
+  if [[ -n "${DRIVER_PID}" ]] && kill -0 "${DRIVER_PID}" 2>/dev/null; then
+    warning "Driver process is still running (PID ${DRIVER_PID})."
+  else
+    warning "Driver process is not running after EvoMaster failure."
+  fi
+  exit "${EM_EXIT}"
+fi
 
 # ---------------------------------------------------------------------------
 # 5. Report results.
