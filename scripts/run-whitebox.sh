@@ -72,11 +72,13 @@ done
 # The collection is sanitized during setup (sanitize-postman.sh patches null
 # response arrays that would otherwise NPE in EvoMaster 3.3.0's PostmanParser).
 # Pass --seed-file explicitly to override, or --seed-file "" to disable.
+# POSTMAN SEEDING DISABLED FOR NOW
 if [[ -z "${SEED_FILE}" ]]; then
-  if [[ -s /opt/crapi/postman/crapi.postman_collection.json ]]; then
-    SEED_FILE=/opt/crapi/postman/crapi.postman_collection.json
-    SEED_FORMAT=POSTMAN
-  fi
+  SEED_FILE=""
+  # if [[ -s /opt/crapi/postman/crapi.postman_collection.json ]]; then
+  #   SEED_FILE=/opt/crapi/postman/crapi.postman_collection.json
+  #   SEED_FORMAT=POSTMAN
+  # fi
 fi
 
 TIME_BUDGET="${TIME_BUDGET_MINUTES}m"
@@ -262,7 +264,12 @@ if [[ -n "${SEED_FILE}" && -f "${SEED_FILE}" ]]; then
   info "Seeding EvoMaster with ${SEED_FORMAT} collection: ${SEED_FILE}"
   SEED_ARGS=(--seedTestCases true --seedTestCasesPath "${SEED_FILE}" --seedTestCasesFormat "${SEED_FORMAT}")
 else
-  info "No seed collection found – running without --seedTestCases."
+  info "No seed collection – explicitly disabling seedTestCases to override any cached em.yaml value."
+  # EvoMaster persists CLI flags to em.yaml between runs.  If a previous run
+  # stored seedTestCasesPath there, EvoMaster will replay it even when we omit
+  # the flag.  Passing --seedTestCases false forces it off regardless of the
+  # cached config.
+  SEED_ARGS=(--seedTestCases false)
 fi
 
 info "Starting EvoMaster white-box test generation (budget: ${TIME_BUDGET})…"

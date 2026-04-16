@@ -21,8 +21,6 @@
 # container automatically; you do not need to manage it manually.
 # =============================================================================
 
-version: "3.9"
-
 # ---------------------------------------------------------------------------
 # Shared network so every service can reach every other service by hostname.
 # ---------------------------------------------------------------------------
