@@ -113,7 +113,14 @@ fetch_postman_collection() {
         https://raw.githubusercontent.com/OWASP/crAPI/main/postman_collections/crAPI.postman_collection.json; then
     info "Postman collection not available – continuing without seed corpus."
     rm -f "${target}"
+    return
   fi
+
+  # EvoMaster 3.3.0's PostmanParser throws NPE on items with null/empty
+  # response arrays (all 49 items in the upstream crAPI collection).
+  # Sanitize in place so run-whitebox.sh can auto-detect it safely.
+  info "Sanitizing Postman collection for EvoMaster 3.3.0 compatibility…"
+  bash "${SCRIPT_DIR}/sanitize-postman.sh" "${target}"
 }
 
 # ---------------------------------------------------------------------------

@@ -68,13 +68,16 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# NOTE: Auto-detection of the crAPI Postman collection has been disabled.
-# EvoMaster 3.3.0 has a bug in PostmanParser.parseTestCases (PostmanParser.kt:172)
-# where it throws a NullPointerException when the collection contains items with
-# null response arrays (common in the OWASP crAPI default collection).  Until
-# that upstream bug is fixed, Postman seeding must be opted in explicitly via
-# the --seed-file flag with a collection that has been sanitised.
-# To re-enable: bash scripts/run-whitebox.sh --seed-file /path/to/collection.json
+# Auto-detect the crAPI Postman collection installed by setup-droplet.sh.
+# The collection is sanitized during setup (sanitize-postman.sh patches null
+# response arrays that would otherwise NPE in EvoMaster 3.3.0's PostmanParser).
+# Pass --seed-file explicitly to override, or --seed-file "" to disable.
+if [[ -z "${SEED_FILE}" ]]; then
+  if [[ -s /opt/crapi/postman/crapi.postman_collection.json ]]; then
+    SEED_FILE=/opt/crapi/postman/crapi.postman_collection.json
+    SEED_FORMAT=POSTMAN
+  fi
+fi
 
 TIME_BUDGET="${TIME_BUDGET_MINUTES}m"
 
@@ -271,7 +274,7 @@ java -jar "${EVOMASTER_CLI}" \
   --maxTime "${TIME_BUDGET}" \
   --outputFolder "${OUTPUT_DIR}" \
   --outputFormat JAVA_JUNIT_5 \
-  --testSuiteName CrApiCommunityEvoMasterTest \
+  --outputFilePrefix CrApiCommunityEvoMasterTest \
   --enableBasicAssertions true \
   --security true \
   --schemaOracles true \
