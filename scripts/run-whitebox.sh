@@ -239,7 +239,7 @@ fi
 SEED_ARGS=()
 if [[ -n "${SEED_FILE}" && -f "${SEED_FILE}" ]]; then
   info "Seeding EvoMaster with ${SEED_FORMAT} collection: ${SEED_FILE}"
-  SEED_ARGS=(--seedTestCases "${SEED_FILE}" --seedTestCasesFormat "${SEED_FORMAT}")
+  SEED_ARGS=(--seedTestCases true --seedTestCasesPath "${SEED_FILE}" --seedTestCasesFormat "${SEED_FORMAT}")
 else
   info "No seed collection found – running without --seedTestCases."
 fi
@@ -261,9 +261,8 @@ java -jar "${EVOMASTER_CLI}" \
   --taintOnSampling true \
   --discoveredInfoRewardedInFitness true \
   --advancedBlackBoxCoverage true \
-  --writeSnapshot true \
+  --enableWriteSnapshotTests true \
   --writeStatistics true \
-  --writeWFCReportFormat true \
   --exportCoveredTarget true \
   --seed "${SEED}" \
   "${SEED_ARGS[@]}"
