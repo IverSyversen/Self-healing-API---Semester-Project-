@@ -19,11 +19,15 @@
 # =============================================================================
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
 CRAPI_REPO="https://github.com/OWASP/crAPI/archive/refs/heads/main.zip"
 WORK_DIR="/tmp/crapi-build"
 INSTALL_DIR="/opt/crapi"
 JAR_TARGET="${INSTALL_DIR}/identity-service.jar"
 JWKS_TARGET="${INSTALL_DIR}/jwks.json"
+JWT_PATCH_FILE="${REPO_ROOT}/scripts/patches/identity-jwt-null-safety.patch"
 
 info()  { echo "[INFO]  $*"; }
 error() { echo "[ERROR] $*" >&2; }
@@ -41,7 +45,7 @@ fi
 # ---------------------------------------------------------------------------
 # Dependencies
 # ---------------------------------------------------------------------------
-for cmd in curl unzip java; do
+for cmd in curl unzip java patch; do
   if ! command -v "${cmd}" &>/dev/null; then
     error "Required command not found: ${cmd}"
     exit 1
@@ -67,6 +71,22 @@ if [[ ! -d "${IDENTITY_DIR}" ]]; then
   error "Identity service directory not found after extraction: ${IDENTITY_DIR}"
   exit 1
 fi
+
+# ---------------------------------------------------------------------------
+# Apply local patch(es) before build.
+# ---------------------------------------------------------------------------
+if [[ ! -f "${JWT_PATCH_FILE}" ]]; then
+  error "JWT patch file not found: ${JWT_PATCH_FILE}"
+  exit 1
+fi
+
+info "Applying JWT null-safety patch to identity service source…"
+if ! patch --dry-run -p1 -d "${IDENTITY_DIR}" < "${JWT_PATCH_FILE}"; then
+  error "JWT patch dry-run failed. Upstream source may have changed."
+  error "Expected patch file: ${JWT_PATCH_FILE}"
+  exit 1
+fi
+patch -p1 -d "${IDENTITY_DIR}" < "${JWT_PATCH_FILE}"
 
 # ---------------------------------------------------------------------------
 # Build with Gradle (the identity service uses Gradle, not Maven)

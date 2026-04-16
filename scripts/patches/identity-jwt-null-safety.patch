@@ -1,0 +1,33 @@
+diff --git a/src/main/java/com/crapi/config/JwtProvider.java b/src/main/java/com/crapi/config/JwtProvider.java
+index 0a84af2..e88524c 100644
+--- a/src/main/java/com/crapi/config/JwtProvider.java
++++ b/src/main/java/com/crapi/config/JwtProvider.java
+@@ -123,6 +123,10 @@ public class JwtProvider {
+    * @return username from JWT Token
+    */
+   public String getUserNameFromJwtToken(String token) throws ParseException {
++    if (token == null || token.trim().isEmpty()) {
++      log.debug("JWT subject extraction skipped: token is null/blank");
++      return null;
++    }
+     // Parse without verifying token signature
+     return JWTParser.parse(token).getJWTClaimsSet().getSubject();
+   }
+diff --git a/src/main/java/com/crapi/service/Impl/UserServiceImpl.java b/src/main/java/com/crapi/service/Impl/UserServiceImpl.java
+index 40ef701..e09809e 100644
+--- a/src/main/java/com/crapi/service/Impl/UserServiceImpl.java
++++ b/src/main/java/com/crapi/service/Impl/UserServiceImpl.java
+@@ -345,7 +345,12 @@ public class UserServiceImpl implements UserService {
+     User user = null;
+     try {
+       String jwt = jwtAuthTokenFilter.getToken(request);
++      if (jwt == null || jwt.trim().isEmpty()) {
++        throw new EntityNotFoundException(User.class, "userEmail");
++      }
+       String username = jwtProvider.getUserNameFromJwtToken(jwt);
+-      if (username != null && !username.equalsIgnoreCase(EStatus.INVALID.toString())) {
++      if (username != null
++          && !username.trim().isEmpty()
++          && !username.equalsIgnoreCase(EStatus.INVALID.toString())) {
+         user = userRepository.findByEmail(username);
+       }

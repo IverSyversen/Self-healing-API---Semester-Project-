@@ -228,6 +228,25 @@ public class CrApiCommunityController extends ExternalSutController {
                 + ",com.crapi.utils.";
     }
 
+    /**
+     * Skip instrumentation of optional Spring feature classes that are present
+     * in Spring's codebase but depend on artifacts not shipped in crAPI's
+     * identity-service runtime classpath (eg Reactor / OAuth2 client / LDAP).
+     *
+     * <p>Without this explicit skip list, EvoMaster's third-party bytecode
+     * instrumentation attempts to transform those classes and logs startup
+     * errors for missing optional dependencies.  The white-box target remains
+     * unchanged: coverage is still collected for {@code com.crapi.*}.
+     */
+    @Override
+    public String packagesToSkipInstrumentation() {
+        return "org.springframework.aop.support.AopUtils"
+                + ",org.springframework.core.ReactiveAdapterRegistry"
+                + ",org.springframework.core.ReactiveAdapterRegistry$"
+                + ",org.springframework.security.config.annotation.authentication.configurers.ldap."
+                + ",org.springframework.security.config.annotation.web.configurers.oauth2.";
+    }
+
     // -----------------------------------------------------------------------
     // Lifecycle hooks
     // -----------------------------------------------------------------------
