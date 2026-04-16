@@ -33,7 +33,7 @@ with open(inp) as f:
     data = json.load(f)
 
 # The collection may be wrapped in a top-level "collection" key (v2.1 export
-# format) or be at the root level.
+# format) or be at the root level. EvoMaster's Postman parser expects root.
 col = data.get("collection", data)
 
 PLACEHOLDER_RESPONSE = [{
@@ -62,8 +62,11 @@ def walk(items):
 
 walk(col.get("item", []))
 
+# Normalize output to root-level collection object so EvoMaster can parse it.
+normalized = col
+
 with open(out, "w") as f:
-    json.dump(data, f, indent=2)
+    json.dump(normalized, f, indent=2)
 
 print(f"[sanitize-postman] Patched {fixed} item(s) with placeholder responses → {out}")
 PYEOF

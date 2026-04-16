@@ -116,6 +116,18 @@ public class CrApiCommunityController extends ExternalSutController {
     private static final List<SeedUser> SEED_USERS =
             Collections.unmodifiableList(Arrays.asList(USER_ALICE, USER_BOB, USER_MECH));
 
+    private final String sutJarPath;
+
+    public CrApiCommunityController() {
+        this.sutJarPath = System.getProperty("sut.jar", "/opt/crapi/identity-service.jar");
+    }
+
+    public CrApiCommunityController(String sutJarPath) {
+        this.sutJarPath = (sutJarPath == null || sutJarPath.isBlank())
+                ? System.getProperty("sut.jar", "/opt/crapi/identity-service.jar")
+                : sutJarPath;
+    }
+
     // -----------------------------------------------------------------------
     // Entry point
     // -----------------------------------------------------------------------
@@ -139,12 +151,16 @@ public class CrApiCommunityController extends ExternalSutController {
 
     @Override
     public String getPathToExecutableJar() {
-        return System.getProperty("sut.jar", "/opt/crapi/identity-service.jar");
+        return sutJarPath;
     }
 
     @Override
     public String[] getJVMParameters() {
+        String sutXms = System.getProperty("sut.jvm.xms", "256m");
+        String sutXmx = System.getProperty("sut.jvm.xmx", "768m");
         return new String[]{
+                "-Xms" + sutXms,
+                "-Xmx" + sutXmx,
                 "--add-opens=java.base/java.lang=ALL-UNNAMED",
                 "--add-opens=java.base/java.util=ALL-UNNAMED",
                 "--add-opens=java.base/java.util.regex=ALL-UNNAMED",
@@ -198,12 +214,18 @@ public class CrApiCommunityController extends ExternalSutController {
 
     @Override
     public String getLogMessageOfInitializedServer() {
-        return "Started CRAPIBootApplication";
+        return "Starting CRAPIBootApplication";
     }
 
     @Override
     public long getMaxAwaitForInitializationInSeconds() {
-        return 180;
+        return Long.getLong("sut.startup.timeout.seconds", 420L);
+    }
+
+    @Override
+    public int getWaitingSecondsForIncomingConnection() {
+        // Despite the method name, EvoMaster expects this in milliseconds.
+        return Integer.getInteger("sut.instrumentation.socket.timeout.ms", 120_000);
     }
 
     /**
@@ -276,8 +298,12 @@ public class CrApiCommunityController extends ExternalSutController {
      */
     @Override
     public void resetStateOfSUT() {
-        resetPostgres();
-        resetMongo();
+        if (Boolean.parseBoolean(System.getProperty("reset.postgres", "true"))) {
+            resetPostgres();
+        }
+        if (Boolean.parseBoolean(System.getProperty("reset.mongo", "false"))) {
+            resetMongo();
+        }
         if (Boolean.parseBoolean(System.getProperty("seed.users", "true"))) {
             seedUsers();
         }
@@ -435,6 +461,9 @@ public class CrApiCommunityController extends ExternalSutController {
      */
     @Override
     public List<DbSpecification> getDbSpecifications() {
+        if (Boolean.parseBoolean(System.getProperty("driver.disable.sql.spec", "false"))) {
+            return Collections.emptyList();
+        }
         try {
             Connection conn = DriverManager.getConnection(
                     dbJdbcUrl(), dbUser(), dbPassword());

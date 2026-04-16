@@ -52,6 +52,11 @@ DB_NAME="crapi"
 DB_USER="admin"
 DB_PASS="crapisecretpassword"
 JWKS_FILE="/opt/crapi/jwks.json"
+EM_XMS="${EM_XMS:-256m}"
+EM_XMX="${EM_XMX:-1024m}"
+RESET_MONGO="${RESET_MONGO:-false}"
+SEED_USERS="${SEED_USERS:-true}"
+EM_EXPERIMENTAL="${EM_EXPERIMENTAL:-false}"
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -92,12 +97,60 @@ error()   { echo "[ERROR] $*" >&2; }
 
 DRIVER_PID=""
 
+kill_host_identity_processes() {
+  local pids=()
+  mapfile -t pids < <(
+    ps -eo pid=,args= \
+      | awk -v sut_port="${SUT_PORT}" '
+          $0 ~ /[j]ava/ &&
+          $0 ~ /\/opt\/crapi\/identity-service\.jar/ &&
+          index($0, "--server.port=" sut_port) > 0 {print $1}
+        '
+  )
+
+  for pid in "${pids[@]}"; do
+    if kill -0 "${pid}" 2>/dev/null; then
+      warning "Stopping stale host identity-service.jar process on port ${SUT_PORT} (PID ${pid})…"
+      kill "${pid}" || true
+      sleep 1
+      if kill -0 "${pid}" 2>/dev/null; then
+        warning "Process ${pid} did not exit after SIGTERM; sending SIGKILL."
+        kill -9 "${pid}" || true
+      fi
+    fi
+  done
+}
+
+port_is_listening() {
+  local port="$1"
+  ss -ltn "sport = :${port}" 2>/dev/null | awk 'NR>1 {found=1} END {exit(found ? 0 : 1)}'
+}
+
+choose_driver_port() {
+  local start_port="$1"
+  local max_tries=25
+  local candidate
+  for ((i=0; i<max_tries; i++)); do
+    candidate=$((start_port + i))
+    if ! port_is_listening "${candidate}"; then
+      if [[ "${candidate}" != "${DRIVER_PORT}" ]]; then
+        warning "Driver port ${DRIVER_PORT} is busy; using ${candidate} instead."
+      fi
+      DRIVER_PORT="${candidate}"
+      return
+    fi
+  done
+  error "No free driver port found in range ${start_port}-$((start_port + max_tries - 1))."
+  exit 1
+}
+
 cleanup() {
   info "Cleaning up…"
   if [[ -n "${DRIVER_PID}" ]] && kill -0 "${DRIVER_PID}" 2>/dev/null; then
     info "Stopping EvoMaster driver (PID ${DRIVER_PID})…"
     kill "${DRIVER_PID}" || true
   fi
+  kill_host_identity_processes
   if [[ "${RESTORE_COMMUNITY}" == "true" ]]; then
     info "Restoring Docker identity service…"
     docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" up -d crapi-identity \
@@ -124,57 +177,19 @@ if ! command -v docker &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# 1. Ensure the crAPI stack is running (all services; identity will be stopped next)
+# 1. Ensure only infra dependencies are running for white-box mode.
+#    Running the full stack while stopping containerized identity causes
+#    restart loops in dependent services and destabilizes local resources.
 # ---------------------------------------------------------------------------
-info "Starting crAPI Docker stack…"
+info "Starting required infra services (postgres, mongodb, mailhog)…"
 docker compose \
   -f "${REPO_ROOT}/docker-compose.evomaster.yml" \
-  up -d --remove-orphans
+  up -d --remove-orphans postgres mongodb mailhog
 
-# Wait until the crapi-identity container has fully started and seeded the
-# vehicle catalog (vehicle_company / vehicle_model tables).
-#
-# Strategy (avoids a hard fixed sleep):
-#   1. Poll Docker logs for the "Started CRAPIBootApplication" banner.
-#      Max wait: 90 s (18 × 5 s).  Spring Boot typically prints this in <40 s.
-#   2. Once the banner appears, poll the identity service's HTTP login endpoint
-#      until it responds (any HTTP status) – this confirms the HTTP server is
-#      actually accepting connections and InitialDataConfig has finished running.
-#      Max extra wait: 30 s (30 × 1 s).
-info "Waiting for crAPI identity service to become ready (up to 90 s)…"
-IDENTITY_READY=false
-for _ in $(seq 1 18); do
-  if docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" logs --no-follow crapi-identity 2>/dev/null \
-      | grep -q "Started CRAPIBootApplication"; then
-    IDENTITY_READY=true
-    break
-  fi
-  sleep 5
-done
-
-if [[ "${IDENTITY_READY}" == "true" ]]; then
-  info "crAPI identity service banner seen; waiting for HTTP endpoint to accept connections…"
-  HTTP_UP=false
-  for _ in $(seq 1 30); do
-    # Any HTTP response (even 400/401/500) means the server is up and
-    # seeding is done.  -s = silent, no -f so we don't fail on 4xx/5xx.
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-         "http://localhost:${SUT_PORT}/identity/api/auth/login" \
-         -X POST -H "Content-Type: application/json" -d '{}' 2>/dev/null || true)
-    if [[ "${HTTP_CODE}" =~ ^[0-9]{3}$ ]]; then
-      HTTP_UP=true
-      break
-    fi
-    sleep 1
-  done
-  if [[ "${HTTP_UP}" == "true" ]]; then
-    info "crAPI identity service is accepting HTTP connections."
-  else
-    info "HTTP endpoint did not respond within 30 s; proceeding anyway…"
-  fi
-else
-  warning "crAPI identity service did not start within 90 s; proceeding anyway…"
-fi
+# Stop service containers that depend on Docker-managed identity. White-box mode
+# runs identity-service.jar on the host instead.
+docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" stop \
+  crapi-web crapi-workshop crapi-community crapi-identity >/dev/null 2>&1 || true
 
 # ---------------------------------------------------------------------------
 # 2. Stop the Docker-managed identity service so we can claim port ${SUT_PORT}.
@@ -183,49 +198,77 @@ info "Stopping Docker identity service container (port ${SUT_PORT} must be free)
 docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" stop crapi-identity \
   || warning "crapi-identity container was not running – that is fine."
 
+# If a previous run terminated unexpectedly, the host-based identity-service.jar
+# can be left behind and keep port ${SUT_PORT} occupied.
+kill_host_identity_processes
+
+# Pick a free local driver port to avoid collisions with concurrent/stale runs.
+choose_driver_port "${DRIVER_PORT}"
+
 # ---------------------------------------------------------------------------
 # 3. Start the EvoMaster driver in the background.
 #    The driver spawns the community service JAR with the agent attached.
 # ---------------------------------------------------------------------------
 mkdir -p "${OUTPUT_DIR}"
 
-info "Starting EvoMaster driver on port ${DRIVER_PORT}…"
-java \
-  -Dsut.jar="${IDENTITY_JAR}" \
-  -Devomaster.instrumentation.jar.path="${EVOMASTER_AGENT}" \
-  -Ddb.host="${DB_HOST}" \
-  -Ddb.port="${DB_PORT}" \
-  -Ddb.name="${DB_NAME}" \
+# Start the driver with retries: another parallel run can claim the same port
+# in the short window between our free-port probe and the actual bind.
+DRIVER_READY=false
+for attempt in $(seq 1 6); do
+  info "Starting EvoMaster driver on port ${DRIVER_PORT}…"
+  java \
+    -Dsut.jar="${IDENTITY_JAR}" \
+    -Devomaster.instrumentation.jar.path="${EVOMASTER_AGENT}" \
+    -Ddb.host="${DB_HOST}" \
+    -Ddb.port="${DB_PORT}" \
+    -Ddb.name="${DB_NAME}" \
   -Ddb.user="${DB_USER}" \
   -Ddb.password="${DB_PASS}" \
-  -Dopenapi.url="https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json" \
-  -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
-  > "${OUTPUT_DIR}/driver.log" 2>&1 &
-DRIVER_PID=$!
+  -Dreset.mongo="${RESET_MONGO}" \
+  -Dseed.users="${SEED_USERS}" \
+  -Ddriver.disable.sql.spec=true \
+    -Dopenapi.url="https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json" \
+    -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
+    > "${OUTPUT_DIR}/driver.log" 2>&1 &
+  DRIVER_PID=$!
 
-info "Driver PID: ${DRIVER_PID}  (logs: ${OUTPUT_DIR}/driver.log)"
+  info "Driver PID: ${DRIVER_PID}  (logs: ${OUTPUT_DIR}/driver.log)"
+  info "Waiting for EvoMaster driver to be ready…"
 
-# Wait until the driver TCP port is accepting connections.
-# The /controller/api/infoSUT endpoint returns a non-2xx status before EvoMaster
-# CLI has connected and started the SUT, so we check the port directly instead.
-info "Waiting for EvoMaster driver to be ready…"
-DRIVER_READY=false
-for _ in $(seq 1 60); do
-  if (echo >/dev/tcp/localhost/${DRIVER_PORT}) 2>/dev/null; then
-    info "Driver is ready."
-    DRIVER_READY=true
+  for _ in $(seq 1 60); do
+    if (echo >/dev/tcp/localhost/${DRIVER_PORT}) 2>/dev/null; then
+      info "Driver is ready."
+      DRIVER_READY=true
+      break
+    fi
+    if ! kill -0 "${DRIVER_PID}" 2>/dev/null; then
+      break
+    fi
+    sleep 3
+  done
+
+  if [[ "${DRIVER_READY}" == "true" ]]; then
     break
   fi
-  if ! kill -0 "${DRIVER_PID}" 2>/dev/null; then
-    error "EvoMaster driver process died unexpectedly."
-    error "Check ${OUTPUT_DIR}/driver.log for details."
-    exit 1
+
+  if kill -0 "${DRIVER_PID}" 2>/dev/null; then
+    kill "${DRIVER_PID}" || true
   fi
-  sleep 3
+  DRIVER_PID=""
+
+  if grep -q "Failed to bind to localhost/127.0.0.1:${DRIVER_PORT}" "${OUTPUT_DIR}/driver.log" 2>/dev/null; then
+    warning "Driver port ${DRIVER_PORT} was claimed concurrently; retrying on next port."
+    DRIVER_PORT=$((DRIVER_PORT + 1))
+    continue
+  fi
+
+  error "EvoMaster driver failed to become ready on port ${DRIVER_PORT}."
+  error "Check ${OUTPUT_DIR}/driver.log for details."
+  exit 1
 done
 
 if [[ "${DRIVER_READY}" != "true" ]]; then
-  error "EvoMaster driver did not become ready within 180 s."
+  error "EvoMaster driver failed to start after multiple port retries."
   error "Check ${OUTPUT_DIR}/driver.log for details."
   exit 1
 fi
@@ -273,7 +316,22 @@ else
 fi
 
 info "Starting EvoMaster white-box test generation (budget: ${TIME_BUDGET})…"
-java -jar "${EVOMASTER_CLI}" \
+EXPERIMENTAL_ARGS=()
+if [[ "${EM_EXPERIMENTAL}" == "true" ]]; then
+  EXPERIMENTAL_ARGS=(
+    --security true
+    --schemaOracles true
+    --expectationsActive true
+    --taintOnSampling true
+    --discoveredInfoRewardedInFitness true
+    --advancedBlackBoxCoverage true
+    --enableWriteSnapshotTests true
+    --writeStatistics true
+    --exportCoveredTarget true
+  )
+fi
+
+java -Xms"${EM_XMS}" -Xmx"${EM_XMX}" -jar "${EVOMASTER_CLI}" \
   --blackBox false \
   --problemType REST \
   --sutControllerHost localhost \
@@ -283,15 +341,7 @@ java -jar "${EVOMASTER_CLI}" \
   --outputFormat JAVA_JUNIT_5 \
   --outputFilePrefix CrApiCommunityEvoMasterTest \
   --enableBasicAssertions true \
-  --security true \
-  --schemaOracles true \
-  --expectationsActive true \
-  --taintOnSampling true \
-  --discoveredInfoRewardedInFitness true \
-  --advancedBlackBoxCoverage true \
-  --enableWriteSnapshotTests true \
-  --writeStatistics true \
-  --exportCoveredTarget true \
+  "${EXPERIMENTAL_ARGS[@]}" \
   --seed "${SEED}" \
   "${SEED_ARGS[@]}"
 
