@@ -96,6 +96,27 @@ build_driver() {
 }
 
 # ---------------------------------------------------------------------------
+# 7. Fetch a Postman collection to seed EvoMaster mutation with realistic
+#    example requests.  We use the upstream collection that ships with the
+#    crAPI repository (kept in sync with the OpenAPI spec); if the droplet
+#    is offline the run still works, just without --seedTestCases.
+# ---------------------------------------------------------------------------
+fetch_postman_collection() {
+  local target=/opt/crapi/postman/crapi.postman_collection.json
+  mkdir -p "$(dirname "${target}")"
+  if [[ -s "${target}" ]]; then
+    info "Postman collection already present at ${target}"
+    return
+  fi
+  info "Fetching crAPI Postman collection → ${target}"
+  if ! curl -fsSL -o "${target}" \
+        https://raw.githubusercontent.com/OWASP/crAPI/main/postman_collections/crAPI.postman_collection.json; then
+    info "Postman collection not available – continuing without seed corpus."
+    rm -f "${target}"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 require_root
@@ -105,6 +126,7 @@ install_docker
 download_evomaster
 build_identity_jar
 build_driver
+fetch_postman_collection
 
 info "===================================================================="
 info "Setup complete.  Next step:"

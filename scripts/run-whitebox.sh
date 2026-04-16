@@ -31,6 +31,9 @@ set -euo pipefail
 TIME_BUDGET_MINUTES=60
 OUTPUT_DIR="$(pwd)/generated_tests"
 RESTORE_COMMUNITY=true
+SEED_FILE=""
+SEED_FORMAT="POSTMAN"
+SEED=12345
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -55,12 +58,25 @@ JWKS_FILE="/opt/crapi/jwks.json"
 # ---------------------------------------------------------------------------
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --time)      TIME_BUDGET_MINUTES="$2"; shift 2 ;;
-    --output)    OUTPUT_DIR="$2";          shift 2 ;;
-    --no-restore) RESTORE_COMMUNITY=false; shift   ;;
+    --time)        TIME_BUDGET_MINUTES="$2"; shift 2 ;;
+    --output)      OUTPUT_DIR="$2";          shift 2 ;;
+    --seed-file)   SEED_FILE="$2";           shift 2 ;;
+    --seed-format) SEED_FORMAT="$2";         shift 2 ;;
+    --seed)        SEED="$2";                shift 2 ;;
+    --no-restore)  RESTORE_COMMUNITY=false;  shift   ;;
     *) echo "Unknown option: $1" >&2; exit 1 ;;
   esac
 done
+
+# Auto-detect a Postman collection installed by setup-droplet.sh if the caller
+# did not supply --seed-file.  Missing collection → fall back to OpenAPI
+# examples, which is always available via getProblemInfo().
+if [[ -z "${SEED_FILE}" ]]; then
+  if [[ -f /opt/crapi/postman/crapi.postman_collection.json ]]; then
+    SEED_FILE=/opt/crapi/postman/crapi.postman_collection.json
+    SEED_FORMAT=POSTMAN
+  fi
+fi
 
 TIME_BUDGET="${TIME_BUDGET_MINUTES}m"
 
@@ -193,10 +209,45 @@ fi
 
 # ---------------------------------------------------------------------------
 # 4. Run EvoMaster CLI in white-box mode.
+#
+# Flag rationale (tuned specifically for crAPI security testing):
+#   --security true
+#       Turns on EvoMaster's REST security oracles (missing auth, forbidden
+#       bypass, inconsistent 401/403, BOLA/BOPLA detection across seeded users).
+#   --schemaOracles true
+#       Flags responses whose status code or Content-Type is NOT documented in
+#       the OpenAPI spec — this is what caught F-01..F-08 in the first run.
+#   --expectationsActive true
+#       Emits JUnit assertions based on observed behaviour so the generated
+#       test suite fails loudly if the behaviour regresses.
+#   --taintOnSampling true
+#       Enables string/int taint propagation even for brand-new samples; helps
+#       solve conditions like "if (email.equalsIgnoreCase(\"admin@…\"))".
+#   --discoveredInfoRewardedInFitness true
+#       Rewards individuals that uncover new JSON response fields, which is
+#       exactly the signal needed to discover mass-assignment bugs.
+#   --advancedBlackBoxCoverage true
+#       Keeps black-box-equivalent coverage metrics alongside white-box ones,
+#       which produces more complete statistics for the final report.
+#   --writeSnapshot / --writeStatistics / --writeWFCReportFormat / --exportCoveredTarget
+#       Diagnostic dumps read by run-report.sh to annotate the HTML report.
+#   --seedTestCases*
+#       Seeds mutation with real example requests from a Postman collection
+#       (or OpenAPI `examples` section), dramatically improving the rate at
+#       which EvoMaster hits valid state-dependent flows on crAPI.
 # ---------------------------------------------------------------------------
+SEED_ARGS=()
+if [[ -n "${SEED_FILE}" && -f "${SEED_FILE}" ]]; then
+  info "Seeding EvoMaster with ${SEED_FORMAT} collection: ${SEED_FILE}"
+  SEED_ARGS=(--seedTestCases "${SEED_FILE}" --seedTestCasesFormat "${SEED_FORMAT}")
+else
+  info "No seed collection found – running without --seedTestCases."
+fi
+
 info "Starting EvoMaster white-box test generation (budget: ${TIME_BUDGET})…"
 java -jar "${EVOMASTER_CLI}" \
   --blackBox false \
+  --problemType REST \
   --sutControllerHost localhost \
   --sutControllerPort "${DRIVER_PORT}" \
   --maxTime "${TIME_BUDGET}" \
@@ -204,7 +255,18 @@ java -jar "${EVOMASTER_CLI}" \
   --outputFormat JAVA_JUNIT_5 \
   --testSuiteFileName CrApiCommunityEvoMasterTest \
   --enableBasicAssertions true \
-  --seed 12345
+  --security true \
+  --schemaOracles true \
+  --expectationsActive true \
+  --taintOnSampling true \
+  --discoveredInfoRewardedInFitness true \
+  --advancedBlackBoxCoverage true \
+  --writeSnapshot true \
+  --writeStatistics true \
+  --writeWFCReportFormat true \
+  --exportCoveredTarget true \
+  --seed "${SEED}" \
+  "${SEED_ARGS[@]}"
 
 # ---------------------------------------------------------------------------
 # 5. Report results.

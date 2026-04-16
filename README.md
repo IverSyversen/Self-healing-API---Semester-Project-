@@ -109,7 +109,33 @@ bash scripts/run-whitebox.sh
 
 # Custom budget and output directory
 bash scripts/run-whitebox.sh --time 30 --output /opt/results/evomaster
+
+# Seed mutation with a Postman collection (auto-detected if setup-droplet.sh
+# has been run; pass --seed-file explicitly to override)
+bash scripts/run-whitebox.sh --seed-file /opt/crapi/postman/crapi.postman_collection.json
+
+# Reproducibility: fix the RNG seed (default 12345)
+bash scripts/run-whitebox.sh --seed 42
 ```
+
+The driver seeds three fixed accounts into Postgres on every reset so EvoMaster
+has real JWTs for protected endpoints:
+
+| Email                     | Role     | Password       |
+|---------------------------|----------|----------------|
+| `alice@evomaster.test`    | user     | `Passw0rd!1A`  |
+| `bob@evomaster.test`      | user     | `Passw0rd!1A`  |
+| `mech@evomaster.test`     | mechanic | `Passw0rd!1A`  |
+
+The two customer accounts are what enable EvoMaster's BOLA detector — it will
+replay Alice's requests using Bob's object IDs (and vice versa) and flag any
+2xx response as a Broken-Object-Level-Authorization fault.
+
+The run-whitebox.sh script activates EvoMaster's security-specific oracles
+(`--security true`, `--schemaOracles true`, `--taintOnSampling true`,
+`--discoveredInfoRewardedInFitness true`) so the generated report
+distinguishes authentication, authorization and schema-contract violations
+from generic 500 faults.
 
 The script:
 1. Starts the crAPI Docker stack (all services) via `docker-compose.evomaster.yml`
