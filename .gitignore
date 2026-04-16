@@ -16,7 +16,7 @@ out/
 Thumbs.db
 
 # EvoMaster generated tests and report output
-generated_tests/
+#generated_tests/
 
 # Maven test source tree populated by run-report.sh
-test-runner/src/
+#test-runner/src/
