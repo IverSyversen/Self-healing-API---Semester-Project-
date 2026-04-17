@@ -8,9 +8,11 @@ import org.evomaster.client.java.controller.api.dto.database.schema.DatabaseType
 import org.evomaster.client.java.controller.problem.ProblemInfo;
 import org.evomaster.client.java.controller.problem.RestProblem;
 import org.evomaster.client.java.sql.DbSpecification;
+import com.webfuzzing.commons.auth.Header;
 import com.webfuzzing.commons.auth.LoginEndpoint;
 import com.webfuzzing.commons.auth.TokenHandling;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.sql.Connection;
@@ -106,15 +108,41 @@ public class CrApiCommunityController extends ExternalSutController {
     private static final String SEED_PASSWORD_BCRYPT =
             "$2b$10$lv7IDOAhpzDgExp/L0fzDOeqLUIzGuBRFyXeyUsiHBrL.PI0fksXW";
 
+    /**
+     * Fixed OTP used for password-reset and verify-email flows.
+     * A known value lets EvoMaster submit the correct OTP when it discovers
+     * the verify endpoint, turning a dead-end 400 into an explorable success path.
+     */
+    private static final String SEED_OTP = "000000";
+
+    /**
+     * Fixed email-change token seeded in {@code otp_token}.
+     * Allows EvoMaster to exercise the verify-email-change endpoint without
+     * needing to intercept a live email.
+     */
+    private static final String SEED_EMAIL_TOKEN = "evomaster-email-token";
+
+    /**
+     * Fixed OTP used for the phone-number-change confirmation flow.
+     */
+    private static final String SEED_PHONE_OTP = "111111";
+
     private static final SeedUser USER_ALICE =
-            new SeedUser("alice@evomaster.test", "Alice EM", "+15550001111", "user");
+            new SeedUser("alice@evomaster.test", "Alice EM", "+15550001111", "user",  "alice-apikey-evomaster");
     private static final SeedUser USER_BOB =
-            new SeedUser("bob@evomaster.test",   "Bob EM",   "+15550002222", "user");
+            new SeedUser("bob@evomaster.test",   "Bob EM",   "+15550002222", "user",  "bob-apikey-evomaster");
     private static final SeedUser USER_MECH =
-            new SeedUser("mech@evomaster.test",  "Mech EM",  "+15550003333", "mechanic");
+            new SeedUser("mech@evomaster.test",  "Mech EM",  "+15550003333", "mechanic", "mech-apikey-evomaster");
+    /**
+     * Admin account (ERole ordinal 3 = ROLE_ADMIN).
+     * Needed to exercise the {@code /identity/management/admin/**} endpoints
+     * that Spring Security restricts to ADMIN role.
+     */
+    private static final SeedUser USER_ADMIN =
+            new SeedUser("admin@evomaster.test", "Admin EM", "+15550004444", "admin", "admin-apikey-evomaster");
 
     private static final List<SeedUser> SEED_USERS =
-            Collections.unmodifiableList(Arrays.asList(USER_ALICE, USER_BOB, USER_MECH));
+            Collections.unmodifiableList(Arrays.asList(USER_ALICE, USER_BOB, USER_MECH, USER_ADMIN));
 
     private final String sutJarPath;
 
@@ -295,9 +323,12 @@ public class CrApiCommunityController extends ExternalSutController {
      *       schema (excluding Flyway/Liquibase history and the vehicle
      *       catalog tables populated once by {@code InitialDataConfig}).</li>
      *   <li>Drop and recreate the community service's MongoDB collections.</li>
-     *   <li>Re-seed three fixed accounts (two customers, one mechanic) so that
-     *       {@link #getInfoForAuthentication()} can log them in and hand valid
-     *       JWTs to every EvoMaster test action.</li>
+     *   <li>Re-seed four fixed accounts (two customers, one mechanic, one admin)
+     *       so that {@link #getInfoForAuthentication()} can log them in and hand
+     *       valid JWTs to every EvoMaster test action.</li>
+     *   <li>Seed vehicles with locations, OTP records, email-change tokens,
+     *       phone-change OTPs, and profile-video stubs so that EvoMaster can
+     *       reach the deeper branches that depend on pre-existing DB state.</li>
      * </ol>
      */
     @Override
@@ -310,6 +341,11 @@ public class CrApiCommunityController extends ExternalSutController {
         }
         if (Boolean.parseBoolean(System.getProperty("seed.users", "true"))) {
             seedUsers();
+            seedVehicles();
+            seedOtps();
+            seedOtpTokens();
+            seedPhoneChangeOtps();
+            seedProfileVideos();
         }
     }
 
@@ -401,8 +437,8 @@ public class CrApiCommunityController extends ExternalSutController {
 
     private void seedUsersCurrentSchema(Connection conn) throws SQLException {
         String insertLogin = "INSERT INTO public.user_login "
-                + "(id, email, number, password, role) "
-                + "VALUES (nextval('public.user_login_id_seq'), ?, ?, ?, ?) "
+                + "(id, email, number, password, role, api_key) "
+                + "VALUES (nextval('public.user_login_id_seq'), ?, ?, ?, ?, ?) "
                 + "RETURNING id";
         String insertDetails = "INSERT INTO public.user_details "
                 + "(id, available_credit, name, status, user_id) "
@@ -415,6 +451,7 @@ public class CrApiCommunityController extends ExternalSutController {
                 loginPs.setString(2, u.phone);
                 loginPs.setString(3, SEED_PASSWORD_BCRYPT);
                 loginPs.setShort(4, roleOrdinal(u.role));
+                loginPs.setString(5, u.apiKey);
 
                 long userId;
                 try (ResultSet rs = loginPs.executeQuery()) {
@@ -434,16 +471,281 @@ public class CrApiCommunityController extends ExternalSutController {
     }
 
     private void seedUsersLegacySchema(Connection conn) throws SQLException {
-        String sql = "INSERT INTO public.user_login (email, number, password, role) VALUES (?,?,?,?)";
+        String sql = "INSERT INTO public.user_login (email, number, password, role, api_key) VALUES (?,?,?,?,?)";
         try (PreparedStatement ps = conn.prepareStatement(sql)) {
             for (SeedUser u : SEED_USERS) {
                 ps.setString(1, u.email);
                 ps.setString(2, u.phone);
                 ps.setString(3, SEED_PASSWORD_BCRYPT);
                 ps.setString(4, u.role);
+                ps.setString(5, u.apiKey);
                 ps.addBatch();
             }
             ps.executeBatch();
+        }
+    }
+
+    /**
+     * Seeds one vehicle per customer account (Alice and Bob) so EvoMaster's
+     * BOLA detector has real vehicleIds to probe.  Without seeded vehicles,
+     * the /identity/api/v2/vehicle/{vehicleId}/location endpoint (crAPI's
+     * canonical BOLA target) is unreachable because no valid IDs exist.
+     *
+     * <p>Each vehicle is linked to a freshly inserted {@code vehicle_location}
+     * row so the location endpoint returns real data rather than null.
+     *
+     * <p>Vehicle VINs are fixed and deterministic so test runs are reproducible.
+     * The method is a no-op when the vehicle_details table does not exist
+     * (version skew) or when the vehicle_model catalog is empty.
+     *
+     * <p><b>Fixed bugs vs. original implementation:</b>
+     * <ul>
+     *   <li>Column is {@code owner_id}, not {@code user_id}.</li>
+     *   <li>{@code status} is a {@code smallint} (EStatus ordinal), not a string.</li>
+     *   <li>{@code uuid} and {@code year} are NOT NULL and must be supplied.</li>
+     *   <li>{@code id} must be fetched from {@code vehicle_details_seq} explicitly.</li>
+     * </ul>
+     */
+    private void seedVehicles() {
+        try (Connection conn = DriverManager.getConnection(dbJdbcUrl(), dbUser(), dbPassword())) {
+            if (!tableExists(conn, "vehicle_details")) {
+                return;
+            }
+
+            // Pick any available model from the catalog seeded at startup.
+            long modelId;
+            try (Statement st = conn.createStatement();
+                 ResultSet rs = st.executeQuery(
+                         "SELECT id FROM public.vehicle_model LIMIT 1")) {
+                if (!rs.next()) {
+                    return;
+                }
+                modelId = rs.getLong(1);
+            }
+
+            // Fetch Alice and Bob's user IDs (inserted by seedUsers()).
+            String lookupSql = "SELECT id FROM public.user_login WHERE email = ?";
+            long aliceId = lookupUserId(conn, lookupSql, USER_ALICE.email);
+            long bobId   = lookupUserId(conn, lookupSql, USER_BOB.email);
+            if (aliceId < 0 || bobId < 0) {
+                return;
+            }
+
+            conn.setAutoCommit(false);
+            try {
+                insertVehicle(conn, aliceId, modelId,
+                        "1HGEM21303L000001", "000001",
+                        "a1a1a1a1-a1a1-a1a1-a1a1-a1a1a1a1a1a1",
+                        "37.7749295", "-122.4194155");
+                insertVehicle(conn, bobId, modelId,
+                        "1HGEM21303L000002", "000002",
+                        "b2b2b2b2-b2b2-b2b2-b2b2-b2b2b2b2b2b2",
+                        "37.3382082", "-121.8863286");
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (Exception e) {
+            System.err.println("[driver] Seed vehicles skipped: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Seeds OTP records for all users so EvoMaster can exercise the
+     * password-reset verification flow ({@code /identity/api/v2/user/reset-password}).
+     * Without a pre-seeded OTP the verify step always returns 400 and EvoMaster
+     * can never reach the success branch.
+     */
+    private void seedOtps() {
+        try (Connection conn = DriverManager.getConnection(dbJdbcUrl(), dbUser(), dbPassword())) {
+            if (!tableExists(conn, "otp")) return;
+            String lookupSql = "SELECT id FROM public.user_login WHERE email = ?";
+            String insertSql = "INSERT INTO public.otp (id, otp, status, count, user_id) "
+                    + "VALUES (nextval('public.otp_seq'), ?, 'ACTIVE', 0, ?)";
+            conn.setAutoCommit(false);
+            try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                for (SeedUser u : SEED_USERS) {
+                    long userId = lookupUserId(conn, lookupSql, u.email);
+                    if (userId < 0) continue;
+                    ps.setString(1, SEED_OTP);
+                    ps.setLong(2, userId);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (Exception e) {
+            System.err.println("[driver] Seed OTPs skipped: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Seeds email-change token records so EvoMaster can exercise the
+     * verify-email-change endpoint ({@code /identity/api/v2/user/change-email}).
+     * The token value {@value #SEED_EMAIL_TOKEN} is fixed so EvoMaster can
+     * discover and submit it via taint analysis.
+     */
+    private void seedOtpTokens() {
+        try (Connection conn = DriverManager.getConnection(dbJdbcUrl(), dbUser(), dbPassword())) {
+            if (!tableExists(conn, "otp_token")) return;
+            String lookupSql = "SELECT id FROM public.user_login WHERE email = ?";
+            String insertSql = "INSERT INTO public.otp_token "
+                    + "(id, email_token, new_email, old_email, status, user_id) "
+                    + "VALUES (nextval('public.otp_token_seq'), ?, ?, ?, 'ACTIVE', ?)";
+            conn.setAutoCommit(false);
+            try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                for (SeedUser u : SEED_USERS) {
+                    long userId = lookupUserId(conn, lookupSql, u.email);
+                    if (userId < 0) continue;
+                    String newEmail = u.email.replace("@evomaster.test", ".new@evomaster.test");
+                    ps.setString(1, SEED_EMAIL_TOKEN);
+                    ps.setString(2, newEmail);
+                    ps.setString(3, u.email);
+                    ps.setLong(4, userId);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (Exception e) {
+            System.err.println("[driver] Seed OTP tokens skipped: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Seeds phone-change OTP records so EvoMaster can reach the phone-number
+     * change confirmation branch.
+     */
+    private void seedPhoneChangeOtps() {
+        try (Connection conn = DriverManager.getConnection(dbJdbcUrl(), dbUser(), dbPassword())) {
+            if (!tableExists(conn, "otp_phone_number_change")) return;
+            String lookupSql = "SELECT id FROM public.user_login WHERE email = ?";
+            String insertSql = "INSERT INTO public.otp_phone_number_change "
+                    + "(id, otp, new_phone, old_phone, status, user_id) "
+                    + "VALUES (nextval('public.otp_phone_number_change_seq'), ?, ?, ?, 'ACTIVE', ?)";
+            conn.setAutoCommit(false);
+            try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                for (SeedUser u : SEED_USERS) {
+                    long userId = lookupUserId(conn, lookupSql, u.email);
+                    if (userId < 0) continue;
+                    // Derive a new phone by incrementing the last digit.
+                    String newPhone = u.phone.substring(0, u.phone.length() - 1)
+                            + ((Integer.parseInt(u.phone.substring(u.phone.length() - 1)) + 1) % 10);
+                    ps.setString(1, SEED_PHONE_OTP);
+                    ps.setString(2, newPhone);
+                    ps.setString(3, u.phone);
+                    ps.setLong(4, userId);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (Exception e) {
+            System.err.println("[driver] Seed phone-change OTPs skipped: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Seeds a profile-video stub for every user.
+     *
+     * <p>The {@code profile_video} table has a unique constraint on {@code user_id},
+     * so without a pre-seeded row the GET/UPDATE/DELETE/convert-video endpoints
+     * all return "Video not found" and EvoMaster can never reach the success
+     * or BOLA branches on those paths.  The actual video binary ({@code oid})
+     * is left null — the endpoints for retrieving metadata and the
+     * command-injection convert endpoint do not require it.
+     */
+    private void seedProfileVideos() {
+        try (Connection conn = DriverManager.getConnection(dbJdbcUrl(), dbUser(), dbPassword())) {
+            if (!tableExists(conn, "profile_video")) return;
+            String lookupSql = "SELECT id FROM public.user_login WHERE email = ?";
+            String insertSql = "INSERT INTO public.profile_video "
+                    + "(id, video_name, conversion_params, user_id) "
+                    + "VALUES (nextval('public.profile_video_seq'), ?, null, ?)";
+            conn.setAutoCommit(false);
+            try (PreparedStatement ps = conn.prepareStatement(insertSql)) {
+                int idx = 1;
+                for (SeedUser u : SEED_USERS) {
+                    long userId = lookupUserId(conn, lookupSql, u.email);
+                    if (userId < 0) continue;
+                    ps.setString(1, "seed-video-" + idx++ + ".mp4");
+                    ps.setLong(2, userId);
+                    ps.addBatch();
+                }
+                ps.executeBatch();
+                conn.commit();
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            }
+        } catch (Exception e) {
+            System.err.println("[driver] Seed profile videos skipped: " + e.getMessage());
+        }
+    }
+
+    private long lookupUserId(Connection conn, String sql, String email) throws SQLException {
+        try (PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setString(1, email);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : -1L;
+            }
+        }
+    }
+
+    /**
+     * Inserts a vehicle row together with a fresh location row.
+     *
+     * <p>Required columns fixed vs. original broken implementation:
+     * <ul>
+     *   <li>{@code owner_id} — the correct FK column name (was {@code user_id}).</li>
+     *   <li>{@code status 1} — smallint ACTIVE ordinal (was the string {@code 'inactive'}).</li>
+     *   <li>{@code uuid} — NOT NULL, supplied as a fixed deterministic value.</li>
+     *   <li>{@code year} — NOT NULL, supplied as 2023.</li>
+     *   <li>{@code id} — fetched from {@code vehicle_details_seq}.</li>
+     *   <li>{@code location_id} — FK to a freshly inserted {@code vehicle_location} row,
+     *       enabling the location endpoint to return real coordinates.</li>
+     * </ul>
+     */
+    private void insertVehicle(Connection conn, long ownerId, long modelId,
+                                String vin, String pincode, String uuid,
+                                String latitude, String longitude) throws SQLException {
+        // Insert location first so we can reference it.
+        long locationId;
+        String locationSql = "INSERT INTO public.vehicle_location "
+                + "(id, latitude, longitude) "
+                + "VALUES (nextval('public.vehicle_location_seq'), ?, ?) "
+                + "RETURNING id";
+        try (PreparedStatement ps = conn.prepareStatement(locationSql)) {
+            ps.setString(1, latitude);
+            ps.setString(2, longitude);
+            try (ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                locationId = rs.getLong(1);
+            }
+        }
+
+        // status=1 → EStatus.ACTIVE (ordinal 1 in the EStatus enum).
+        String vehicleSql = "INSERT INTO public.vehicle_details "
+                + "(id, pincode, status, uuid, year, vin, vehicle_model_id, owner_id, location_id) "
+                + "VALUES (nextval('public.vehicle_details_seq'), ?, 1, ?::uuid, 2023, ?, ?, ?, ?)";
+        try (PreparedStatement ps = conn.prepareStatement(vehicleSql)) {
+            ps.setString(1, pincode);
+            ps.setString(2, uuid);
+            ps.setString(3, vin);
+            ps.setLong(4, modelId);
+            ps.setLong(5, ownerId);
+            ps.setLong(6, locationId);
+            ps.executeUpdate();
         }
     }
 
@@ -467,11 +769,36 @@ public class CrApiCommunityController extends ExternalSutController {
         }
     }
 
+    /**
+     * Maps a role name to the {@code ERole} enum ordinal stored in
+     * the {@code user_login.role} smallint column.
+     *
+     * <p>Ordinals confirmed by decompiling
+     * {@code BOOT-INF/classes/com/crapi/enums/ERole.class} from the identity-service JAR:
+     * <pre>
+     *   iconst_0 → ROLE_PREDEFINE  (0)
+     *   iconst_1 → ROLE_USER       (1)
+     *   iconst_2 → ROLE_MECHANIC   (2)
+     *   iconst_3 → ROLE_ADMIN      (3)
+     * </pre>
+     *
+     * <p>Spring Security authorization rules (from {@code WebSecurityConfig}):
+     * <ul>
+     *   <li>{@code /identity/management/admin/**} → {@code hasRole("ADMIN")} → ordinal 3</li>
+     *   <li>all other protected paths → {@code authenticated()} → any role passes</li>
+     * </ul>
+     *
+     * <p>Seeded users need the correct ordinals so that Spring Security
+     * authorities match what each endpoint requires after
+     * {@link #resetStateOfSUT()} re-inserts them.
+     */
     private short roleOrdinal(String role) {
-        if ("mechanic".equalsIgnoreCase(role)) {
-            return 1;
+        switch (role.toLowerCase()) {
+            case "user":     return 1; // ROLE_USER
+            case "mechanic": return 2; // ROLE_MECHANIC
+            case "admin":    return 3; // ROLE_ADMIN
+            default:         return 0; // ROLE_PREDEFINE (fallback)
         }
-        return 0;
     }
 
     // -----------------------------------------------------------------------
@@ -539,7 +866,7 @@ public class CrApiCommunityController extends ExternalSutController {
     // -----------------------------------------------------------------------
 
     /**
-     * Registers the three seed accounts with EvoMaster.
+     * Registers the four seed accounts with EvoMaster.
      *
      * <p>For each entry, EvoMaster will:
      * <ol>
@@ -551,17 +878,49 @@ public class CrApiCommunityController extends ExternalSutController {
      *       requests in the same test.</li>
      * </ol>
      *
-     * <p>Having two customer accounts (Alice and Bob) is what enables
-     * EvoMaster's BOLA detector: it can repeat the same request under
-     * Alice's token but with Bob's object IDs (or vice-versa) and flag
-     * any 2xx response as a Broken-Object-Level-Authorization fault.
+     * <p>Having two customer accounts (Alice and Bob) enables EvoMaster's BOLA
+     * detector: it repeats the same request under Alice's token using Bob's
+     * object IDs (and vice versa) and flags any 2xx response as a
+     * Broken-Object-Level-Authorization fault.
+     *
+     * <p>The admin account (role=3, ROLE_ADMIN) unlocks
+     * {@code /identity/management/admin/**} endpoints that Spring Security
+     * restricts to the ADMIN role.
+     */
+    /**
+     * Registers eight auth identities with EvoMaster — four JWT-based and four
+     * static-header (ApiKey) entries, one of each per seed account.
+     *
+     * <h3>Why two entries per user?</h3>
+     * <ul>
+     *   <li><b>JWT entries</b> (alice, bob, mech, admin): EvoMaster dynamically
+     *       POSTs to {@code /identity/api/auth/login} before each test and attaches
+     *       the returned RS256-signed Bearer token.  These are the primary auth
+     *       identities used during exploration.  Having two customer accounts enables
+     *       EvoMaster's BOLA detector (cross-user object access checks).</li>
+     *   <li><b>ApiKey entries</b> (alice-key, bob-key, mech-key, admin-key): crAPI's
+     *       {@code JwtAuthTokenFilter} accepts {@code Authorization: ApiKey <jwt>}
+     *       as an alternative auth path.  On this path, JWT <em>signature validation
+     *       is skipped</em> — only structural JWT parsing happens — so we use a
+     *       deterministic fake-signed JWT generated by {@link #buildFakeJwt}.
+     *       Because these are fixed headers, EvoMaster embeds them verbatim in
+     *       generated test code, avoiding the {@code "Bearer {}"} placeholder bug
+     *       in EvoMaster 5.1.0 where the JWT is not substituted at code-gen time.</li>
+     * </ul>
      */
     @Override
     public List<AuthenticationDto> getInfoForAuthentication() {
         List<AuthenticationDto> list = new ArrayList<>();
+        // JWT-based auth (dynamic — used during exploration)
         list.add(buildLogin("alice", USER_ALICE));
         list.add(buildLogin("bob",   USER_BOB));
         list.add(buildLogin("mech",  USER_MECH));
+        list.add(buildLogin("admin", USER_ADMIN));
+        // API-key-based auth (static — embeds cleanly in generated test code)
+        list.add(buildApiKeyAuth("alice-key", USER_ALICE));
+        list.add(buildApiKeyAuth("bob-key",   USER_BOB));
+        list.add(buildApiKeyAuth("mech-key",  USER_MECH));
+        list.add(buildApiKeyAuth("admin-key", USER_ADMIN));
         return list;
     }
 
@@ -586,6 +945,78 @@ public class CrApiCommunityController extends ExternalSutController {
 
         auth.setLoginEndpointAuth(login);
         return auth;
+    }
+
+    /**
+     * Builds a fixed-header auth entry using crAPI's {@code ApiKey} auth path.
+     *
+     * <h3>How crAPI's ApiKey auth actually works (decompiled from JAR)</h3>
+     * <ol>
+     *   <li>{@code JwtAuthTokenFilter.getKeyType()} reads the {@code Authorization}
+     *       header and returns {@code APIKEY} if the value
+     *       {@code startsWith("ApiKey")}.</li>
+     *   <li>{@code getToken()} strips the first 7 characters of the
+     *       {@code Authorization} value (i.e. the {@code "ApiKey "} prefix,
+     *       7 chars including the space).</li>
+     *   <li>On the APIKEY path, {@code getUserFromToken()} calls
+     *       {@code tokenProvider.getUserNameFromJwtToken(token)}, which uses
+     *       {@code com.nimbusds.jwt.JWTParser.parse(token).getJWTClaimsSet().getSubject()}.
+     *       <b>Crucially, {@code validateJwtToken()} is never called on the APIKEY
+     *       path — there is no signature verification.</b>  Only the structural
+     *       validity of the JWT and the presence of a {@code sub} claim are
+     *       required.</li>
+     * </ol>
+     *
+     * <h3>Why this fixes the generated-test {@code "Bearer {}"} problem</h3>
+     * EvoMaster 5.1.0 has a code-generation bug where the JWT placeholder is
+     * not substituted when writing the static {@code _faults_Test.java} file.
+     * Fixed headers are embedded verbatim — no placeholder substitution — so
+     * generated tests use the real {@code Authorization: ApiKey <jwt>} value.
+     *
+     * @see #buildFakeJwt(String, String)
+     */
+    private static AuthenticationDto buildApiKeyAuth(String name, SeedUser u) {
+        AuthenticationDto auth = new AuthenticationDto(name);
+        Header header = new Header();
+        // The filter reads the Authorization header and checks startsWith("ApiKey").
+        // getToken() strips 7 chars ("ApiKey "), so the remaining string must be
+        // parseable by JWTParser.parse() — a plain string is NOT valid JWT syntax.
+        header.setName("Authorization");
+        header.setValue("ApiKey " + buildFakeJwt(u.email, u.role));
+        auth.setFixedHeaders(Collections.singletonList(header));
+        return auth;
+    }
+
+    /**
+     * Builds a structurally valid JWT that will be accepted by crAPI's APIKEY
+     * authentication path without requiring a valid RSA signature.
+     *
+     * <p>On the APIKEY path, {@code getUserNameFromJwtToken()} uses
+     * {@code JWTParser.parse(token)} (Nimbus JOSE+JWT), which parses the token
+     * structure without verifying the signature.  The signature is therefore
+     * a dummy value — only the header and payload must be well-formed base64url
+     * JSON with a {@code sub} claim.
+     *
+     * <p>The expiry ({@code exp}) is set to 2099-01-01 so the token is valid
+     * for any test run regardless of clock drift.
+     *
+     * @param email  placed in the {@code sub} claim (used by
+     *               {@code loadUserByUsername()} to look up the user in the DB)
+     * @param role   placed in the {@code role} claim (informational; the filter
+     *               loads the actual role from the DB)
+     * @return a three-part dot-separated JWT string
+     */
+    private static String buildFakeJwt(String email, String role) {
+        String headerJson  = "{\"alg\":\"RS256\",\"typ\":\"JWT\"}";
+        // exp=4102444800 is 2099-01-01T00:00:00Z in Unix epoch seconds.
+        String payloadJson = String.format(
+                "{\"sub\":\"%s\",\"role\":\"%s\",\"iat\":1700000000,\"exp\":4102444800}",
+                email, role);
+        Base64.Encoder enc = Base64.getUrlEncoder().withoutPadding();
+        String h = enc.encodeToString(headerJson.getBytes(StandardCharsets.UTF_8));
+        String p = enc.encodeToString(payloadJson.getBytes(StandardCharsets.UTF_8));
+        // Any non-empty base64url bytes work as the dummy signature on the APIKEY path.
+        return h + "." + p + ".AAAAAAAAAA";
     }
 
     // -----------------------------------------------------------------------
@@ -623,12 +1054,20 @@ public class CrApiCommunityController extends ExternalSutController {
         final String name;
         final String phone;
         final String role;
+        /** Static API key seeded into {@code user_login.api_key}.
+         *  The crAPI {@code JwtAuthTokenFilter} accepts an {@code ApiKey}
+         *  request header as an alternative to a Bearer JWT.  Because API keys
+         *  never expire they can be embedded as fixed headers in EvoMaster's
+         *  generated test code, which solves the {@code "Bearer {}"} placeholder
+         *  problem that arises when JWT tokens expire before code generation. */
+        final String apiKey;
 
-        SeedUser(String email, String name, String phone, String role) {
-            this.email = email;
-            this.name  = name;
-            this.phone = phone;
-            this.role  = role;
+        SeedUser(String email, String name, String phone, String role, String apiKey) {
+            this.email  = email;
+            this.name   = name;
+            this.phone  = phone;
+            this.role   = role;
+            this.apiKey = apiKey;
         }
     }
 }

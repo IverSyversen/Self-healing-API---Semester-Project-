@@ -33,15 +33,45 @@ OUTPUT_DIR="$(pwd)/generated_tests"
 RESTORE_COMMUNITY=true
 SEED_FILE=""
 SEED_FORMAT="POSTMAN"
-SEED=12345
+# Empty = let EvoMaster pick its own random seed each run (better exploration).
+# Pass --seed <n> on the command line to pin a specific seed for reproducibility.
+SEED=""
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
-EVOMASTER_DIR="${EVOMASTER_DIR:-/opt/evomaster}"
+# Auto-detect EVOMASTER_DIR: prefer the patched local build (~/evomaster),
+# then the server install (/opt/evomaster), then ~/.local/evomaster.
+# Override by setting EVOMASTER_DIR in the environment before calling this script.
+if [[ -z "${EVOMASTER_DIR:-}" ]]; then
+  for _em_candidate in \
+      "${HOME}/evomaster" \
+      /opt/evomaster \
+      "${HOME}/.local/evomaster"; do
+    if [[ -f "${_em_candidate}/evomaster.jar" ]]; then
+      EVOMASTER_DIR="${_em_candidate}"
+      break
+    fi
+  done
+  EVOMASTER_DIR="${EVOMASTER_DIR:-/opt/evomaster}"
+fi
+
 EVOMASTER_CLI="${EVOMASTER_DIR}/evomaster.jar"
 EVOMASTER_AGENT="${EVOMASTER_DIR}/evomaster-agent.jar"
-CRAPI_DIR="${CRAPI_DIR:-/opt/crapi}"
+
+# Auto-detect CRAPI_DIR: prefer server install (/opt/crapi), then ~/.local/crapi.
+if [[ -z "${CRAPI_DIR:-}" ]]; then
+  for _crapi_candidate in \
+      /opt/crapi \
+      "${HOME}/.local/crapi"; do
+    if [[ -f "${_crapi_candidate}/identity-service.jar" ]]; then
+      CRAPI_DIR="${_crapi_candidate}"
+      break
+    fi
+  done
+  CRAPI_DIR="${CRAPI_DIR:-/opt/crapi}"
+fi
+
 IDENTITY_JAR="${CRAPI_DIR}/identity-service.jar"
 DRIVER_JAR="${REPO_ROOT}/evomaster-driver/target/crapi-community-driver-1.0.0.jar"
 
@@ -54,14 +84,30 @@ DB_USER="admin"
 DB_PASS="crapisecretpassword"
 JWKS_FILE="${CRAPI_DIR}/jwks.json"
 EM_XMS="${EM_XMS:-256m}"
-EM_XMX="${EM_XMX:-1024m}"
-RESET_MONGO="${RESET_MONGO:-false}"
+# 2 GB gives EvoMaster enough heap for long runs without GC pressure stalling
+# test generation.  Override with EM_XMX=<value> if the host has less RAM.
+EM_XMX="${EM_XMX:-2048m}"
+RESET_MONGO="${RESET_MONGO:-true}"
 SEED_USERS="${SEED_USERS:-true}"
 EM_EXPERIMENTAL="${EM_EXPERIMENTAL:-false}"
-EM_DISABLE_IMPACT_MUTATION="${EM_DISABLE_IMPACT_MUTATION:-true}"
+# Impact-guided mutation is EvoMaster's core adaptive learning algorithm.
+# It was disabled previously to work around a crash in TableConstraintEvaluator
+# and SqlActionUtils that has since been fixed.  Re-enabling it typically yields
+# 15-25% more covered targets on JPA/Spring applications.
+EM_DISABLE_IMPACT_MUTATION="${EM_DISABLE_IMPACT_MUTATION:-false}"
 JAVA_BIN="${JAVA_BIN:-}"
 SUT_STARTUP_TIMEOUT_SECONDS="${SUT_STARTUP_TIMEOUT_SECONDS:-600}"
 SUT_INSTRUMENTATION_TIMEOUT_MS="${SUT_INSTRUMENTATION_TIMEOUT_MS:-300000}"
+
+# ---------------------------------------------------------------------------
+# Helpers  (defined early so they are available in argument parsing and
+# auto-detection blocks that follow)
+# ---------------------------------------------------------------------------
+info()    { echo "[INFO]  $*"; }
+warning() { echo "[WARN]  $*" >&2; }
+error()   { echo "[ERROR] $*" >&2; }
+
+DRIVER_PID=""
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -78,29 +124,24 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Auto-detect the crAPI Postman collection installed by setup-droplet.sh.
-# The collection is sanitized during setup (sanitize-postman.sh patches null
-# response arrays that would otherwise NPE in EvoMaster 3.3.0's PostmanParser).
-# Pass --seed-file explicitly to override, or --seed-file "" to disable.
-# POSTMAN SEEDING DISABLED FOR NOW
+# Auto-detect the crAPI Postman collection.
+# Checked in priority order: project repo (preferred, already sanitized),
+# then the server path set by setup-droplet.sh (/opt/crapi/postman).
+# Pass --seed-file explicitly to override, or --seed-file /dev/null to disable.
 if [[ -z "${SEED_FILE}" ]]; then
-  SEED_FILE=""
-  # if [[ -s /opt/crapi/postman/crapi.postman_collection.json ]]; then
-  #   SEED_FILE=/opt/crapi/postman/crapi.postman_collection.json
-  #   SEED_FORMAT=POSTMAN
-  # fi
+  for _postman_candidate in \
+      "${REPO_ROOT}/postman/crapi.postman_collection.json" \
+      "/opt/crapi/postman/crapi.postman_collection.json"; do
+    if [[ -s "${_postman_candidate}" ]]; then
+      SEED_FILE="${_postman_candidate}"
+      SEED_FORMAT="POSTMAN"
+      info "Auto-detected Postman collection: ${_postman_candidate}"
+      break
+    fi
+  done
 fi
 
 TIME_BUDGET="${TIME_BUDGET_MINUTES}m"
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-info()    { echo "[INFO]  $*"; }
-warning() { echo "[WARN]  $*" >&2; }
-error()   { echo "[ERROR] $*" >&2; }
-
-DRIVER_PID=""
 
 resolve_java_bin() {
   if [[ -n "${JAVA_BIN}" ]]; then
@@ -267,7 +308,6 @@ for attempt in $(seq 1 6); do
     -Djwks.file="${JWKS_FILE}" \
     -Dreset.mongo="${RESET_MONGO}" \
     -Dseed.users="${SEED_USERS}" \
-    -Ddriver.disable.sql.spec=true \
     -Dopenapi.url="https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json" \
     -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
     > "${OUTPUT_DIR}/driver.log" 2>&1 &
@@ -359,30 +399,41 @@ else
 fi
 
 info "Starting EvoMaster white-box test generation (budget: ${TIME_BUDGET})…"
-EXPERIMENTAL_ARGS=()
-if [[ "${EM_EXPERIMENTAL}" == "true" ]]; then
-  EXPERIMENTAL_ARGS=(
-    --security true
-    --schemaOracles true
-    --expectationsActive true
-    --taintOnSampling true
-    --discoveredInfoRewardedInFitness true
-    --advancedBlackBoxCoverage true
-    --enableWriteSnapshotTests true
-    --writeStatistics true
-    --exportCoveredTarget true
-  )
-fi
+# Security and oracle flags are unconditional: without them EvoMaster runs as a
+# plain coverage tool and cannot detect BOLA, auth-bypass, or schema violations.
+EXPERIMENTAL_ARGS=(
+  --security true
+  --schemaOracles true
+  --expectationsActive true
+  --taintOnSampling true
+  --discoveredInfoRewardedInFitness true
+  --advancedBlackBoxCoverage true
+  --enableWriteSnapshotTests true
+  --writeStatistics true
+  --exportCoveredTarget true
+)
 
 STABILITY_ARGS=()
 if [[ "${EM_DISABLE_IMPACT_MUTATION}" == "true" ]]; then
-  # EvoMaster 5.1.0 can crash on some OpenAPI enum mutations
-  # (Invalid gene type StringGene in EnumGene.containsSameValueAs).
-  # Disabling impact/archive-based mutation avoids that unstable code path.
+  # Legacy workaround: EvoMaster 5.1.0 crashed in EnumGene.containsSameValueAs
+  # (StringGene type mismatch on OpenAPI enums) and in TableConstraintEvaluator
+  # (first() on empty NumberGene list).  Both bugs have been patched in the local
+  # build.  This block is kept as a safety escape hatch — set
+  # EM_DISABLE_IMPACT_MUTATION=true to revert to the conservative behaviour.
   STABILITY_ARGS=(
     --doCollectImpact false
     --archiveGeneMutation NONE
   )
+fi
+
+# Optional seed argument — omit entirely if no seed is specified so EvoMaster
+# picks its own random seed, giving each run a different exploration path.
+SEED_VALUE_ARGS=()
+if [[ -n "${SEED}" ]]; then
+  SEED_VALUE_ARGS=(--seed "${SEED}")
+  info "Using fixed random seed: ${SEED}"
+else
+  info "No fixed seed — EvoMaster will use its own random seed for this run."
 fi
 
 set +u
@@ -398,9 +449,10 @@ EVOMASTER_LOG="${OUTPUT_DIR}/evomaster.log"
   --outputFormat JAVA_JUNIT_5 \
   --outputFilePrefix CrApiCommunityEvoMasterTest \
   --enableBasicAssertions true \
+  --endpointPrefix /identity/ \
   "${STABILITY_ARGS[@]}" \
   "${EXPERIMENTAL_ARGS[@]}" \
-  --seed "${SEED}" \
+  "${SEED_VALUE_ARGS[@]}" \
   "${SEED_ARGS[@]}" | tee "${EVOMASTER_LOG}"
 EM_EXIT=${PIPESTATUS[0]}
 set -e

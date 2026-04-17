@@ -1,0 +1,114 @@
+{
+  "SERVER_ERROR_500": {
+    "id": "mit-001",
+    "description": "Enable safe-mode null guards on video processing endpoint",
+    "applies_to": "identity-service",
+    "type": "env_var",
+    "action": { "SAFE_VIDEO_MODE": "true" },
+    "verify_with": "evomaster",
+    "verify_passes_when": "distinct500Faults == 0",
+    "notes": "The identity service checks SAFE_VIDEO_MODE at startup and adds null guards around VideoController.getVideoBase64()"
+  },
+
+  "JWT_ALG_NONE": {
+    "id": "mit-002a",
+    "description": "Block JWT tokens with alg=none at the nginx layer",
+    "applies_to": "nginx",
+    "type": "nginx_rule",
+    "action": "jwt_alg_none_block.conf",
+    "verify_with": "nuclei",
+    "verify_passes_when": "no match on jwt-none-algorithm",
+    "notes": "Catches alg=none before the request reaches the identity service"
+  },
+
+  "JWT_CONFUSION": {
+    "id": "mit-002b",
+    "description": "Block JWT tokens with alg=HS256 (RS256→HS256 confusion) at nginx",
+    "applies_to": "nginx",
+    "type": "nginx_rule",
+    "action": "jwt_alg_none_block.conf",
+    "verify_with": "nuclei",
+    "verify_passes_when": "no match on jwt-algorithm-confusion"
+  },
+
+  "MISSING_SECURITY_HEADERS": {
+    "id": "mit-003",
+    "description": "Add X-Content-Type-Options, X-Frame-Options, CSP and other security headers",
+    "applies_to": "nginx",
+    "type": "nginx_rule",
+    "action": "security_headers.conf",
+    "verify_with": "zap",
+    "verify_passes_when": "no alerts on pluginid in [10021, 10036, 10037, 10038, 10016, 10020]"
+  },
+
+  "RATE_LIMIT_MISSING": {
+    "id": "mit-004",
+    "description": "Rate-limit the coupon validation endpoint to 3 requests/minute per IP",
+    "applies_to": "nginx",
+    "type": "nginx_rule",
+    "action": "coupon_rate_limit.conf",
+    "verify_with": "nuclei",
+    "verify_passes_when": "no match on rate-limit-bypass"
+  },
+
+  "BOLA_OBJECT_ACCESS": {
+    "id": "mit-005",
+    "description": "Enable object-level ownership enforcement in community service",
+    "applies_to": "community-service",
+    "type": "env_var",
+    "action": { "ENFORCE_OBJECT_OWNERSHIP": "true" },
+    "verify_with": "nuclei",
+    "verify_passes_when": "no match on bola",
+    "notes": "community-service checks this env var and adds ownership validation to post/comment GET handlers"
+  },
+
+  "MASS_ASSIGNMENT": {
+    "id": "mit-006",
+    "description": "Enable field whitelist validation on vehicle update endpoint",
+    "applies_to": "workshop-service",
+    "type": "env_var",
+    "action": { "STRICT_FIELD_VALIDATION": "true" },
+    "verify_with": "nuclei",
+    "verify_passes_when": "no match on mass-assignment"
+  },
+
+  "SCHEMA_VIOLATION": {
+    "id": "mit-007",
+    "description": "Enable strict response validation middleware",
+    "applies_to": "identity-service",
+    "type": "env_var",
+    "action": { "STRICT_RESPONSE_VALIDATION": "true" },
+    "verify_with": "schemathesis",
+    "verify_passes_when": "no response_schema_conformance failures"
+  },
+
+  "EXCESSIVE_DATA_EXPOSURE": {
+    "id": "mit-008",
+    "description": "Enable response field filtering to strip internal fields from API responses",
+    "applies_to": "community-service",
+    "type": "env_var",
+    "action": { "FILTER_RESPONSE_FIELDS": "true" },
+    "verify_with": "schemathesis",
+    "verify_passes_when": "no response_schema_conformance failures"
+  },
+
+  "BFLA_UNAUTHORISED_ACCESS": {
+    "id": "mit-009",
+    "description": "Enforce role-based access control on admin and mechanic endpoints",
+    "applies_to": "identity-service",
+    "type": "env_var",
+    "action": { "STRICT_RBAC": "true" },
+    "verify_with": "nuclei",
+    "verify_passes_when": "no match on broken-function-level-auth"
+  },
+
+  "SQL_INJECTION": {
+    "id": "mit-010",
+    "description": "Enable parameterised query enforcement and input sanitisation",
+    "applies_to": "identity-service",
+    "type": "env_var",
+    "action": { "STRICT_INPUT_VALIDATION": "true" },
+    "verify_with": "zap",
+    "verify_passes_when": "no alerts on pluginid in [40014, 40018, 40024, 90020]"
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "_comment": "Self-healing pipeline configuration. Edit these values to match your environment.",
+
+  "scanners": ["evomaster", "nuclei", "zap", "schemathesis"],
+
+  "base_url": "http://localhost:8888",
+
+  "evomaster_stats":     "statistics.csv",
+  "evomaster_tests_dir": "generated_tests",
+
+  "nuclei_target":    "http://localhost:8888",
+  "nuclei_templates": ["api", "token", "http/misconfiguration"],
+  "nuclei_extra_args": [],
+
+  "zap_target":       "http://localhost:8888",
+  "zap_docker_image": "ghcr.io/zaproxy/zaproxy:stable",
+  "zap_scan_timeout": 300,
+  "nginx_container":  "crapi-web",
+
+  "schemathesis_schema":        "http://localhost:8888/openapi.json",
+  "schemathesis_target":        "http://localhost:8888",
+  "schemathesis_checks":        ["not_a_server_error", "response_schema_conformance"],
+  "schemathesis_workers":       2,
+  "schemathesis_max_examples":  30,
+
+  "env_file": ".env"
+}
