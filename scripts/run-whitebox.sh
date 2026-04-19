@@ -75,6 +75,28 @@ fi
 IDENTITY_JAR="${CRAPI_DIR}/identity-service.jar"
 DRIVER_JAR="${REPO_ROOT}/evomaster-driver/target/crapi-community-driver-1.0.0.jar"
 
+# ---------------------------------------------------------------------------
+# Local patched OpenAPI spec.
+#
+# The upstream spec (OWASP/crAPI on GitHub) defines some path parameters at
+# the *path level* rather than the operation level, which EvoMaster does not
+# support.  The most critical case is vehicleId in:
+#   /identity/api/v2/vehicle/{vehicleId}/location
+# Without the fix, EvoMaster prints:
+#   "Currently cannot handle 'path-scope' parameters …"
+#   "No path parameter for variable 'vehicleId' …"
+# and silently skips the endpoint — so BOLA is never detected.
+#
+# The patched spec is pre-generated in the repo at:
+#   postman/crapi-openapi-spec-patched.json
+# Regenerate it any time the upstream spec changes by running:
+#   python3 scripts/patch-openapi-spec.py \
+#       postman/crapi-openapi-spec-patched.json  (see inline comments)
+# or just re-run this script with REGEN_SPEC=true.
+# ---------------------------------------------------------------------------
+PATCHED_SPEC="${REPO_ROOT}/postman/crapi-openapi-spec-patched.json"
+REGEN_SPEC="${REGEN_SPEC:-false}"
+
 DRIVER_PORT=40100
 SUT_PORT=8080
 DB_HOST="localhost"
@@ -124,18 +146,78 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
-# Auto-detect the crAPI Postman collection.
-# Checked in priority order: project repo (preferred, already sanitized),
-# then the server path set by setup-droplet.sh (/opt/crapi/postman).
-# Pass --seed-file explicitly to override, or --seed-file /dev/null to disable.
+# ---------------------------------------------------------------------------
+# Regenerate the patched OpenAPI spec if requested or if it is missing.
+# ---------------------------------------------------------------------------
+if [[ "${REGEN_SPEC}" == "true" || ! -f "${PATCHED_SPEC}" ]]; then
+  info "Regenerating patched OpenAPI spec → ${PATCHED_SPEC}…"
+  UPSTREAM_SPEC_URL="https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json"
+  TMP_SPEC="$(mktemp /tmp/crapi-openapi-spec-XXXXXX.json)"
+  if ! curl -sSf "${UPSTREAM_SPEC_URL}" -o "${TMP_SPEC}"; then
+    warning "Could not download upstream spec – reusing existing patched spec if present."
+  else
+    python3 - "${TMP_SPEC}" "${PATCHED_SPEC}" <<'PYEOF'
+import json, sys, copy
+
+with open(sys.argv[1]) as f:
+    spec = json.load(f)
+
+paths = spec.get("paths", {})
+BEARER_RESP = {
+    "401": {"description": "Unauthorized", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CRAPIResponse"}}}},
+    "403": {"description": "Forbidden",    "content": {"application/json": {"schema": {"$ref": "#/components/schemas/CRAPIResponse"}}}},
+}
+
+for path, path_item in list(paths.items()):
+    path_params = path_item.pop("parameters", None)
+    if path_params:
+        for method in ["get", "post", "put", "patch", "delete", "head", "options"]:
+            if method in path_item:
+                op = path_item[method]
+                existing = {p["name"] for p in op.get("parameters", [])}
+                added = [copy.deepcopy(p) for p in path_params if p.get("name") not in existing]
+                if added:
+                    op.setdefault("parameters", [])
+                    op["parameters"] = added + op["parameters"]
+    for method in ["get", "post", "put", "patch", "delete"]:
+        if method not in path_item:
+            continue
+        op = path_item[method]
+        if op.get("security") or spec.get("security"):
+            resp = op.setdefault("responses", {})
+            resp.setdefault("401", copy.deepcopy(BEARER_RESP["401"]))
+            if op.get("security"):
+                resp.setdefault("403", copy.deepcopy(BEARER_RESP["403"]))
+
+with open(sys.argv[2], "w") as f:
+    json.dump(spec, f, indent=2)
+print(f"[patch-openapi] Written to {sys.argv[2]}")
+PYEOF
+    rm -f "${TMP_SPEC}"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Auto-detect and sanitize the crAPI Postman collection.
+#
+# The sanitize-postman.sh script now does two things:
+#   1. Replaces all {{variable}} Postman template placeholders with real
+#      seed-user values so EvoMaster gets valid example requests.
+#   2. Patches null/empty response arrays to prevent PostmanParser crashes.
+#
+# We always sanitize into a temp file so the original collection is untouched.
+# ---------------------------------------------------------------------------
+SANITIZED_POSTMAN=""
 if [[ -z "${SEED_FILE}" ]]; then
   for _postman_candidate in \
       "${REPO_ROOT}/postman/crapi.postman_collection.json" \
       "/opt/crapi/postman/crapi.postman_collection.json"; do
     if [[ -s "${_postman_candidate}" ]]; then
-      SEED_FILE="${_postman_candidate}"
-      SEED_FORMAT="POSTMAN"
       info "Auto-detected Postman collection: ${_postman_candidate}"
+      SANITIZED_POSTMAN="$(mktemp /tmp/crapi-postman-sanitized-XXXXXX.json)"
+      bash "${SCRIPT_DIR}/sanitize-postman.sh" "${_postman_candidate}" "${SANITIZED_POSTMAN}"
+      SEED_FILE="${SANITIZED_POSTMAN}"
+      SEED_FORMAT="POSTMAN"
       break
     fi
   done
@@ -218,6 +300,10 @@ cleanup() {
     kill "${DRIVER_PID}" || true
   fi
   kill_host_identity_processes
+  # Remove the sanitized Postman temp file if we created one.
+  if [[ -n "${SANITIZED_POSTMAN:-}" && -f "${SANITIZED_POSTMAN:-}" ]]; then
+    rm -f "${SANITIZED_POSTMAN}"
+  fi
   if [[ "${RESTORE_COMMUNITY}" == "true" ]]; then
     info "Restoring Docker identity service…"
     docker compose -f "${REPO_ROOT}/docker-compose.evomaster.yml" up -d crapi-identity \
@@ -308,7 +394,7 @@ for attempt in $(seq 1 6); do
     -Djwks.file="${JWKS_FILE}" \
     -Dreset.mongo="${RESET_MONGO}" \
     -Dseed.users="${SEED_USERS}" \
-    -Dopenapi.url="https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json" \
+    -Dopenapi.url="file://${PATCHED_SPEC}" \
     -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
     > "${OUTPUT_DIR}/driver.log" 2>&1 &
   DRIVER_PID=$!
@@ -401,6 +487,24 @@ fi
 info "Starting EvoMaster white-box test generation (budget: ${TIME_BUDGET})…"
 # Security and oracle flags are unconditional: without them EvoMaster runs as a
 # plain coverage tool and cannot detect BOLA, auth-bypass, or schema violations.
+#
+# Additional security flags added for BOLA / mass-assignment / auth-bypass:
+#   --security true
+#       Core flag: enables cross-user BOLA oracle (tries user-B token on
+#       user-A's vehicleId), auth-bypass oracle (tries endpoints without token),
+#       and forbidden-bypass oracle (tries admin endpoints with user token).
+#   --schemaOracles true
+#       Flags any response status/body that doesn't match the OpenAPI spec.
+#       Because the patched spec now documents 401/403 on every protected
+#       endpoint, EvoMaster can flag endpoints that return 200 without auth.
+#   --enableMutationTesting true (if supported)
+#       Not available in 5.x — left as comment for future upgrade.
+# Reserve 40% of total budget for extra phases (security BOLA/auth-bypass,
+# minimization).  Without this, the 60-minute search exhausts the whole budget
+# and the security phase gets only ~37 seconds — far too little for BOLA checks.
+# With 0.4 on a 60-minute run: search gets ~60 min, extra phases get ~24 min,
+# giving the BOLA oracle enough time to test cross-user object access.
+# Cap minimization at 3 minutes so the bulk of extra time goes to BOLA/security.
 EXPERIMENTAL_ARGS=(
   --security true
   --schemaOracles true
@@ -411,6 +515,8 @@ EXPERIMENTAL_ARGS=(
   --enableWriteSnapshotTests true
   --writeStatistics true
   --exportCoveredTarget true
+  --extraPhaseBudgetPercentage 0.4
+  --minimizeTimeout 3
 )
 
 STABILITY_ARGS=()
