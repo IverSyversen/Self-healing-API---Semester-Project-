@@ -1,23 +1,42 @@
 name: Create mitigation directories from manifest
 
-# Runs nightly at 02:00 UTC, plus a manual trigger for testing.
+# Reads the manifest from this repo and creates matching directories
+# in the HMFhtx/mitigation-repo repository.
+#
+# Runs nightly at 02:00 UTC, also triggerable manually for testing.
 on:
   schedule:
     - cron: "0 2 * * *"
   workflow_dispatch:
 
+# This workflow does not need write access to the parser repo itself,
+# only to the mitigations repo, and that access comes from the PAT.
 permissions:
-  contents: write
+  contents: read
+
+env:
+  PARSER_MANIFEST_PATH: fault_mapping/manifests/repo_paths.json
+  MITIGATIONS_REPO: HMFhtx/mitigation-repo
+  # Set to 'testing' for the initial integration. Once verified,
+  # change to 'main' (and add branch protection on main if not already).
+  MITIGATIONS_BRANCH: testing
 
 jobs:
   create-directories:
     runs-on: ubuntu-latest
     steps:
-      - name: Check out repo
+      - name: Check out parser repo (this one)
         uses: actions/checkout@v4
         with:
-          # Default GITHUB_TOKEN is sufficient for committing to the same repo.
-          token: ${{ secrets.GITHUB_TOKEN }}
+          path: parser
+
+      - name: Check out mitigations repo
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.MITIGATIONS_REPO }}
+          token: ${{ secrets.MITIGATIONS_REPO_TOKEN }}
+          ref: ${{ env.MITIGATIONS_BRANCH }}
+          path: mitigations
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -26,17 +45,19 @@ jobs:
 
       - name: Create missing directories from manifest
         id: create_dirs
-        env:
-          MANIFEST_PATH: manifests/repo_paths.json
         run: |
           python3 - <<'PY'
           import json
           import os
           import sys
 
-          manifest_path = os.environ["MANIFEST_PATH"]
+          manifest_path = os.path.join("parser", os.environ["PARSER_MANIFEST_PATH"])
+          mitigations_root = "mitigations"
+
           if not os.path.exists(manifest_path):
               print(f"No manifest at {manifest_path}, nothing to do.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as gh:
+                  gh.write("created_count=0\n")
               sys.exit(0)
 
           with open(manifest_path) as f:
@@ -45,6 +66,8 @@ jobs:
           entries = manifest.get("entries", [])
           if not entries:
               print("Manifest is empty, nothing to do.")
+              with open(os.environ["GITHUB_OUTPUT"], "a") as gh:
+                  gh.write("created_count=0\n")
               sys.exit(0)
 
           created = []
@@ -56,18 +79,17 @@ jobs:
                   print(f"Skipping entry without directory: {entry}")
                   continue
 
-              gitkeep = os.path.join(directory, ".gitkeep")
+              full_dir = os.path.join(mitigations_root, directory)
+              gitkeep = os.path.join(full_dir, ".gitkeep")
 
               # Only create if the directory does not exist already, never
               # overwrite or modify directories that someone has populated.
-              if os.path.isdir(directory):
+              if os.path.isdir(full_dir):
                   skipped.append(directory)
                   continue
 
-              os.makedirs(directory, exist_ok=True)
+              os.makedirs(full_dir, exist_ok=True)
               with open(gitkeep, "w") as f:
-                  # An empty file is fine, but a one-line note makes the
-                  # placeholder self-documenting for anyone browsing the repo.
                   f.write("# Placeholder, replace with search_replace.json\n")
               created.append(directory)
 
@@ -75,14 +97,17 @@ jobs:
           for d in created:
               print(f"  + {d}")
           print(f"Skipped {len(skipped)} existing directories.")
+          for d in skipped:
+              print(f"  = {d}")
 
-          # Expose count for the next step to decide whether to commit.
           with open(os.environ["GITHUB_OUTPUT"], "a") as gh:
               gh.write(f"created_count={len(created)}\n")
-          PY
+        env:
+          PARSER_MANIFEST_PATH: ${{ env.PARSER_MANIFEST_PATH }}
 
       - name: Commit and push new directories
         if: steps.create_dirs.outputs.created_count != '0'
+        working-directory: mitigations
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -93,9 +118,10 @@ jobs:
           fi
           git commit -m "chore: scaffold mitigation directories from manifest
 
-          Automated commit from the nightly directory-creation workflow.
-          See manifests/repo_paths.json for the source manifest."
-          git push
+          Automated commit from the nightly scaffolding workflow in
+          IverSyversen/Self-healing-API---Semester-Project-.
+          Source manifest: ${PARSER_MANIFEST_PATH}"
+          git push origin ${{ env.MITIGATIONS_BRANCH }}
 
       - name: Report no-op
         if: steps.create_dirs.outputs.created_count == '0'
