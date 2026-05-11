@@ -40,10 +40,19 @@ from datetime import datetime, timezone
 
 try:
     import mysql.connector
+    _HAS_MYSQL = True
 except ImportError:
-    print("ERROR: mysql-connector-python is not installed.")
-    print("Run: pip install mysql-connector-python")
-    sys.exit(1)
+    mysql = None  # populated lazily
+    _HAS_MYSQL = False
+
+
+def _require_mysql():
+    """Fail with a clear message only when the DB is actually needed."""
+    if not _HAS_MYSQL:
+        print("ERROR: mysql-connector-python is not installed.")
+        print("Run: pip install mysql-connector-python")
+        print("Or use --dry-run to skip the database step.")
+        sys.exit(1)
 
 
 # =============================================================
@@ -56,15 +65,23 @@ DB_CONFIG = {
     "database": "OWASP_TOP_10_API_VULNERABILITIES",
 }
 
-DEFAULT_MANIFEST_PATH = "manifests/repo_paths.json"
+DEFAULT_MANIFEST_PATH = "fault_mapping/manifests/repo_paths.json"
 DEFAULT_VERSION = "main"
 MITIGATION_FILENAME = "search_replace.json"
 
 
 # =============================================================
 # FAULT CODE -> mitigations row mapping
-# subcategory_name is looked up against the subcategories table
-# at runtime, so the script does not need to know its numeric id.
+#
+# subcategory_name is looked up against the subcategories table at
+# runtime to resolve the foreign key for the mitigations row.
+#
+# primary_slug is the directory name in the mitigations repo (which
+# uses OWASP API Top 10 2019 categories). This is hardcoded rather
+# than derived from primary_categories.category_name because the DB
+# uses 2023 labels while the mitigations repo uses 2019 directory
+# names, and the project's source of truth is the repo layout.
+#
 # Note: in EvoMaster's Java output, Fault100 always carries an
 # HTTP 500 detail line, so there is no separate H500 code needed.
 # =============================================================
@@ -72,7 +89,8 @@ FAULT_MAPPING = {
     "Fault100": {
         "subcategory_name": "Server Error Handling",
         "vulnerability_name": "Unhandled Internal Crash",
-        "owasp_tag": "API8-2023",
+        "owasp_tag": "API7-2019",
+        "primary_slug": "api7_security_misconfiguration",
         "description": (
             "EvoMaster triggered unhandled exceptions causing HTTP 500 "
             "internal server errors. This indicates missing error "
@@ -82,7 +100,8 @@ FAULT_MAPPING = {
     "Fault101": {
         "subcategory_name": "API Schema Compliance",
         "vulnerability_name": "Response Schema Mismatch",
-        "owasp_tag": "API8-2023",
+        "owasp_tag": "API7-2019",
+        "primary_slug": "api7_security_misconfiguration",
         "description": (
             "API responses did not match the declared OpenAPI schema. "
             "Issues include unknown status codes, invalid JSON bodies, "
@@ -92,7 +111,8 @@ FAULT_MAPPING = {
     "Fault205": {
         "subcategory_name": "API Documentation Coverage",
         "vulnerability_name": "Undocumented HTTP Status Code",
-        "owasp_tag": "API9-2023",
+        "owasp_tag": "API9-2019",
+        "primary_slug": "api9_improper_asset_management",
         "description": (
             "The API returned HTTP status codes not listed in the "
             "OpenAPI specification, indicating gaps in API documentation."
@@ -151,10 +171,14 @@ def slugify(text):
     return text.strip("_")
 
 
-def make_repo_path(primary_name, subcategory_name, vulnerability_name):
-    """Build the canonical repo_path for a mitigation row."""
+def make_repo_path(primary_slug, subcategory_name, vulnerability_name):
+    """Build the canonical repo_path for a mitigation row.
+
+    primary_slug is taken verbatim (hardcoded in FAULT_MAPPING) to
+    match the 2019 directory naming in the mitigations repo.
+    """
     return "/".join([
-        slugify(primary_name),
+        primary_slug,
         slugify(subcategory_name),
         slugify(vulnerability_name),
         MITIGATION_FILENAME,
@@ -277,8 +301,67 @@ def lookup_subcategory(cursor, subcategory_name):
 # =============================================================
 # Main import
 # =============================================================
+def write_manifest(manifest_entries, manifest_path, source_path):
+    """Serialize the manifest to disk. Independent of DB writes."""
+    manifest = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "source_path": source_path,
+        "entries": manifest_entries,
+    }
+    os.makedirs(os.path.dirname(manifest_path) or ".", exist_ok=True)
+    with open(manifest_path, "w") as f:
+        json.dump(manifest, f, indent=2)
+    print(f"Manifest written to: {manifest_path}")
+    print(f"  ({len(manifest_entries)} repo_path entries)")
+
+
+def build_manifest_only(faults, source_path):
+    """Build manifest entries without touching the DB.
+
+    Used by --dry-run, returns the list of entries that would be
+    written. primary_category_name is set to a placeholder since we
+    cannot look it up without a DB connection.
+    """
+    entries = []
+    for fault_code, endpoints in faults.items():
+        if fault_code not in FAULT_MAPPING:
+            print(f"WARNING: Unknown fault code '{fault_code}', skipping.")
+            continue
+
+        mapping = FAULT_MAPPING[fault_code]
+        total = sum(ep["count"] for ep in endpoints.values())
+
+        # In dry-run mode, the path is built from the mapping alone,
+        # no DB lookup needed.
+        repo_path = make_repo_path(
+            mapping["primary_slug"],
+            mapping["subcategory_name"],
+            mapping["vulnerability_name"],
+        )
+
+        print(f"\n{fault_code}: {total} occurrences across {len(endpoints)} endpoints")
+        print(f"  (dry-run) repo_path: {repo_path}")
+
+        entries.append({
+            "fault_code": fault_code,
+            "vulnerability_name": mapping["vulnerability_name"],
+            "owasp_tag": mapping["owasp_tag"],
+            "subcategory_name": mapping["subcategory_name"],
+            "primary_category_name_2023": "(dry-run, not looked up)",
+            "primary_slug_2019": mapping["primary_slug"],
+            "repo_path": repo_path,
+            "directory": directory_of(repo_path),
+            "occurrences": total,
+            "endpoints": sorted(endpoints.keys()),
+            "dry_run": True,
+        })
+
+    return entries
+
+
 def import_to_db(faults, manifest_path, source_path):
     """Import parsed faults into mitigations and emit a manifest."""
+    _require_mysql()
     if not DB_CONFIG["password"]:
         import getpass
         DB_CONFIG["password"] = getpass.getpass("MySQL password: ")
@@ -314,7 +397,7 @@ def import_to_db(faults, manifest_path, source_path):
             continue
 
         repo_path = make_repo_path(
-            primary_name,
+            mapping["primary_slug"],
             mapping["subcategory_name"],
             mapping["vulnerability_name"],
         )
@@ -388,7 +471,8 @@ def import_to_db(faults, manifest_path, source_path):
             "vulnerability_name": mapping["vulnerability_name"],
             "owasp_tag": mapping["owasp_tag"],
             "subcategory_name": mapping["subcategory_name"],
-            "primary_category_name": primary_name,
+            "primary_category_name_2023": primary_name,
+            "primary_slug_2019": mapping["primary_slug"],
             "repo_path": repo_path,
             "directory": directory_of(repo_path),
             "occurrences": total,
@@ -399,18 +483,9 @@ def import_to_db(faults, manifest_path, source_path):
     cursor.close()
     conn.close()
 
-    manifest = {
-        "generated_at": datetime.now(timezone.utc).isoformat(),
-        "source_path": source_path,
-        "entries": manifest_entries,
-    }
-    os.makedirs(os.path.dirname(manifest_path) or ".", exist_ok=True)
-    with open(manifest_path, "w") as f:
-        json.dump(manifest, f, indent=2)
+    write_manifest(manifest_entries, manifest_path, source_path)
 
     print(f"\nSummary: {inserted} inserted, {updated} updated, {skipped} skipped.")
-    print(f"Manifest written to: {manifest_path}")
-    print(f"  ({len(manifest_entries)} repo_path entries)")
     print("\nNext steps:")
     print(f"  1. Commit {manifest_path} to your mitigations repo.")
     print(f"  2. The nightly GitHub Action will create any missing directories.")
@@ -429,6 +504,14 @@ def main():
         default=DEFAULT_MANIFEST_PATH,
         help=f"Where to write the repo_paths manifest (default: {DEFAULT_MANIFEST_PATH})",
     )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Parse and write the manifest only, do not touch the database. "
+            "Useful for testing the parser and manifest format."
+        ),
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.input_path):
@@ -440,16 +523,18 @@ def main():
 
     if not faults:
         print("No faults found.")
-        os.makedirs(os.path.dirname(args.manifest) or ".", exist_ok=True)
-        with open(args.manifest, "w") as f:
-            json.dump({
-                "generated_at": datetime.now(timezone.utc).isoformat(),
-                "source_path": args.input_path,
-                "entries": [],
-            }, f, indent=2)
+        write_manifest([], args.manifest, args.input_path)
         sys.exit(0)
 
     print(f"\nFound fault codes: {', '.join(sorted(faults.keys()))}")
+
+    if args.dry_run:
+        print("\n*** DRY RUN, skipping database writes ***")
+        entries = build_manifest_only(faults, args.input_path)
+        write_manifest(entries, args.manifest, args.input_path)
+        print("\nDone. Re-run without --dry-run to write to the database.")
+        return
+
     import_to_db(faults, args.manifest, args.input_path)
 
 
