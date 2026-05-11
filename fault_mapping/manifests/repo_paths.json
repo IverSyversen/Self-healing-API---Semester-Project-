@@ -1,0 +1,75 @@
+{
+  "generated_at": "2026-05-11T14:08:04.721038+00:00",
+  "source_path": "generated-tests",
+  "entries": [
+    {
+      "fault_code": "Fault100",
+      "vulnerability_name": "Unhandled Internal Crash",
+      "owasp_tag": "API8-2023",
+      "subcategory_name": "Server Error Handling",
+      "primary_category_name": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "repo_path": "api7_2023_server_side_request_forgery_ssrf/server_error_handling/unhandled_internal_crash/search_replace.json",
+      "directory": "api7_2023_server_side_request_forgery_ssrf/server_error_handling/unhandled_internal_crash",
+      "occurrences": 23,
+      "endpoints": [
+        "DELETE:/identity/api/v2/admin/videos/{video_id}",
+        "GET:/identity/api/v2/user/videos/convert_video",
+        "POST:/identity/api/auth/login",
+        "POST:/identity/api/auth/v2.7/user/login-with-token",
+        "POST:/identity/api/auth/v2/check-otp",
+        "POST:/identity/api/auth/v3/check-otp",
+        "POST:/identity/api/auth/v4.0/user/login-with-token",
+        "POST:/identity/api/v2/user/pictures",
+        "POST:/identity/api/v2/user/reset-password",
+        "POST:/identity/api/v2/user/verify-email-token",
+        "POST:/identity/api/v2/user/videos",
+        "PUT:/identity/api/v2/user/videos/{video_id}"
+      ]
+    },
+    {
+      "fault_code": "Fault101",
+      "vulnerability_name": "Response Schema Mismatch",
+      "owasp_tag": "API8-2023",
+      "subcategory_name": "API Schema Compliance",
+      "primary_category_name": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "repo_path": "api7_2023_server_side_request_forgery_ssrf/api_schema_compliance/response_schema_mismatch/search_replace.json",
+      "directory": "api7_2023_server_side_request_forgery_ssrf/api_schema_compliance/response_schema_mismatch",
+      "occurrences": 64,
+      "endpoints": [
+        "DELETE:/identity/api/v2/admin/videos/{video_id}",
+        "DELETE:/identity/api/v2/user/videos/{video_id}",
+        "GET:/identity/api/v2/user/videos/convert_video",
+        "GET:/identity/api/v2/user/videos/{video_id}",
+        "GET:/identity/api/v2/vehicle/vehicles",
+        "GET:/identity/api/v2/vehicle/{vehicleId}/location",
+        "POST:/identity/api/auth/forget-password",
+        "POST:/identity/api/auth/login",
+        "POST:/identity/api/auth/signup",
+        "POST:/identity/api/auth/v2.7/user/login-with-token",
+        "POST:/identity/api/auth/v3/check-otp",
+        "POST:/identity/api/auth/v4.0/user/login-with-token",
+        "POST:/identity/api/v2/user/change-email",
+        "POST:/identity/api/v2/user/pictures",
+        "POST:/identity/api/v2/user/reset-password",
+        "POST:/identity/api/v2/user/verify-email-token",
+        "POST:/identity/api/v2/user/videos",
+        "POST:/identity/api/v2/vehicle/add_vehicle",
+        "POST:/identity/api/v2/vehicle/resend_email",
+        "PUT:/identity/api/v2/user/videos/{video_id}"
+      ]
+    },
+    {
+      "fault_code": "Fault205",
+      "vulnerability_name": "Undocumented HTTP Status Code",
+      "owasp_tag": "API8-2023",
+      "subcategory_name": "API Documentation Coverage",
+      "primary_category_name": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "repo_path": "api7_2023_server_side_request_forgery_ssrf/api_documentation_coverage/undocumented_http_status_code/search_replace.json",
+      "directory": "api7_2023_server_side_request_forgery_ssrf/api_documentation_coverage/undocumented_http_status_code",
+      "occurrences": 1,
+      "endpoints": [
+        "POST:/identity/api/auth/login"
+      ]
+    }
+  ]
+}
