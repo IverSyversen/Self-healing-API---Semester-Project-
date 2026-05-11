@@ -1,15 +1,16 @@
 {
-  "generated_at": "2026-05-11T14:08:04.721038+00:00",
+  "generated_at": "2026-05-11T15:10:44.408023+00:00",
   "source_path": "generated-tests",
   "entries": [
     {
       "fault_code": "Fault100",
       "vulnerability_name": "Unhandled Internal Crash",
-      "owasp_tag": "API8-2023",
+      "owasp_tag": "API7-2019",
       "subcategory_name": "Server Error Handling",
-      "primary_category_name": "API7:2023 - Server Side Request Forgery (SSRF)",
-      "repo_path": "api7_2023_server_side_request_forgery_ssrf/server_error_handling/unhandled_internal_crash/search_replace.json",
-      "directory": "api7_2023_server_side_request_forgery_ssrf/server_error_handling/unhandled_internal_crash",
+      "primary_category_name_2023": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "primary_slug_2019": "api7_security_misconfiguration",
+      "repo_path": "api7_security_misconfiguration/server_error_handling/unhandled_internal_crash/search_replace.json",
+      "directory": "api7_security_misconfiguration/server_error_handling/unhandled_internal_crash",
       "occurrences": 23,
       "endpoints": [
         "DELETE:/identity/api/v2/admin/videos/{video_id}",
@@ -29,11 +30,12 @@
     {
       "fault_code": "Fault101",
       "vulnerability_name": "Response Schema Mismatch",
-      "owasp_tag": "API8-2023",
+      "owasp_tag": "API7-2019",
       "subcategory_name": "API Schema Compliance",
-      "primary_category_name": "API7:2023 - Server Side Request Forgery (SSRF)",
-      "repo_path": "api7_2023_server_side_request_forgery_ssrf/api_schema_compliance/response_schema_mismatch/search_replace.json",
-      "directory": "api7_2023_server_side_request_forgery_ssrf/api_schema_compliance/response_schema_mismatch",
+      "primary_category_name_2023": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "primary_slug_2019": "api7_security_misconfiguration",
+      "repo_path": "api7_security_misconfiguration/api_schema_compliance/response_schema_mismatch/search_replace.json",
+      "directory": "api7_security_misconfiguration/api_schema_compliance/response_schema_mismatch",
       "occurrences": 64,
       "endpoints": [
         "DELETE:/identity/api/v2/admin/videos/{video_id}",
@@ -61,11 +63,12 @@
     {
       "fault_code": "Fault205",
       "vulnerability_name": "Undocumented HTTP Status Code",
-      "owasp_tag": "API8-2023",
+      "owasp_tag": "API9-2019",
       "subcategory_name": "API Documentation Coverage",
-      "primary_category_name": "API7:2023 - Server Side Request Forgery (SSRF)",
-      "repo_path": "api7_2023_server_side_request_forgery_ssrf/api_documentation_coverage/undocumented_http_status_code/search_replace.json",
-      "directory": "api7_2023_server_side_request_forgery_ssrf/api_documentation_coverage/undocumented_http_status_code",
+      "primary_category_name_2023": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "primary_slug_2019": "api9_improper_asset_management",
+      "repo_path": "api9_improper_asset_management/api_documentation_coverage/undocumented_http_status_code/search_replace.json",
+      "directory": "api9_improper_asset_management/api_documentation_coverage/undocumented_http_status_code",
       "occurrences": 1,
       "endpoints": [
         "POST:/identity/api/auth/login"
