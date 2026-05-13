@@ -47,12 +47,21 @@ services:
   mongodb:
     image: mongo:6
     restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: crapisecretpassword
     volumes:
       - mongodb_data:/data/db
     ports:
       - "${LISTEN_IP:-127.0.0.1}:27017:27017"
     networks:
       - crapi
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
 
   # --------------------------------------------------------------------------
   # PostgreSQL – used by the identity and workshop services.
@@ -71,6 +80,12 @@ services:
       - "${LISTEN_IP:-127.0.0.1}:5432:5432"
     networks:
       - crapi
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d crapi"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   # --------------------------------------------------------------------------
   # crAPI Identity Service (Java / Spring Boot)
@@ -85,27 +100,51 @@ services:
     image: crapi/crapi-identity:latest
     restart: unless-stopped
     depends_on:
-      - postgres
-      - mongodb
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8080/identity/api/auth/login -X POST -H 'Content-Type: application/json' -d '{}' | grep -qE '^[2-5]'"]
+      interval: 15s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
     environment:
+      LOG_LEVEL: INFO
       DB_NAME: crapi
       DB_USER: admin
       DB_PASSWORD: crapisecretpassword
       DB_HOST: postgres
       DB_PORT: 5432
+      SERVER_PORT: 8080
+      ENABLE_SHELL_INJECTION: "false"
+      JWT_SECRET: crapi
       MONGO_DB_HOST: mongodb
       MONGO_DB_PORT: 27017
-      MONGO_DB_USER: ""
-      MONGO_DB_PASSWORD: ""
+      MONGO_DB_USER: admin
+      MONGO_DB_PASSWORD: crapisecretpassword
       MONGO_DB_NAME: crapi
       SECRET_KEY: crapi-secret-key-evomaster
+      API_GATEWAY_URL: https://api.mypremiumdealership.com
       MAILHOG_HOST: mailhog
       MAILHOG_PORT: 1025
       MAILHOG_DOMAIN: example.com
+      SMTP_FROM: no-reply@example.com
       SMTP_EMAIL: user@example.com
       SMTP_PASS: ""
       SMTP_HOST: mailhog
       SMTP_PORT: 1025
+      SMTP_AUTH: "false"
+      SMTP_STARTTLS: "false"
+      JWT_EXPIRATION: "604800000"
+      ENABLE_LOG4J: "false"
+      TLS_ENABLED: "false"
+      TLS_KEYSTORE_TYPE: PKCS12
+      TLS_KEYSTORE: classpath:certs/server.p12
+      TLS_KEYSTORE_PASSWORD: passw0rd
+      TLS_KEY_PASSWORD: passw0rd
+      TLS_KEY_ALIAS: identity
       COMMUNITY_SERVICE_URL: http://crapi-community:8087
     networks:
       - crapi
@@ -117,19 +156,37 @@ services:
     image: crapi/crapi-workshop:latest
     restart: unless-stopped
     depends_on:
-      - postgres
-      - mongodb
-      - crapi-identity
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      crapi-identity:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8000/workshop/api/shop/products | grep -qE '^[2-5]'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     environment:
+      LOG_LEVEL: INFO
       DB_NAME: crapi
       DB_USER: admin
       DB_PASSWORD: crapisecretpassword
       DB_HOST: postgres
       DB_PORT: 5432
+      SERVER_PORT: 8000
       MONGO_DB_HOST: mongodb
       MONGO_DB_PORT: 27017
+      MONGO_DB_USER: admin
+      MONGO_DB_PASSWORD: crapisecretpassword
       MONGO_DB_NAME: crapi
       SECRET_KEY: crapi-secret-key-evomaster
+      API_GATEWAY_URL: https://api.mypremiumdealership.com
+      TLS_ENABLED: "false"
+      TLS_CERTIFICATE: certs/server.crt
+      TLS_KEY: certs/server.key
+      IDENTITY_SERVICE: crapi-identity:8080
       IDENTITY_SERVICE_URL: http://crapi-identity:8080
     networks:
       - crapi
@@ -145,12 +202,33 @@ services:
     image: crapi/crapi-community:latest
     restart: unless-stopped
     depends_on:
-      - mongodb
-      - crapi-identity
+      mongodb:
+        condition: service_healthy
+      crapi-identity:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s -o /dev/null -w '%{http_code}' http://localhost:8087/community/api/v2/community/posts/recent | grep -qE '^[2-5]'"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
     environment:
+      LOG_LEVEL: INFO
+      DB_NAME: crapi
+      DB_USER: admin
+      DB_PASSWORD: crapisecretpassword
+      DB_HOST: postgres
+      DB_PORT: 5432
+      SERVER_PORT: 8087
       MONGO_DB_HOST: mongodb
       MONGO_DB_PORT: 27017
+      MONGO_DB_USER: admin
+      MONGO_DB_PASSWORD: crapisecretpassword
       MONGO_DB_NAME: crapi
+      TLS_ENABLED: "false"
+      TLS_CERTIFICATE: certs/server.crt
+      TLS_KEY: certs/server.key
+      IDENTITY_SERVICE: crapi-identity:8080
       IDENTITY_SERVICE_URL: http://crapi-identity:8080
       SECRET_KEY: crapi-secret-key-evomaster
     ports:
@@ -165,12 +243,22 @@ services:
     image: crapi/crapi-web:latest
     restart: unless-stopped
     depends_on:
-      - crapi-identity
-      - crapi-workshop
-      - crapi-community
+      crapi-identity:
+        condition: service_healthy
+      crapi-workshop:
+        condition: service_healthy
+      crapi-community:
+        condition: service_healthy
     ports:
       - "${LISTEN_IP:-0.0.0.0}:8888:80"
       - "${LISTEN_IP:-0.0.0.0}:8443:443"
+    environment:
+      COMMUNITY_SERVICE: crapi-community:8087
+      IDENTITY_SERVICE: crapi-identity:8080
+      WORKSHOP_SERVICE: crapi-workshop:8000
+      CHATBOT_SERVICE: crapi-community:8087
+      MAILHOG_WEB_SERVICE: mailhog:8025
+      TLS_ENABLED: "false"
     networks:
       - crapi
 

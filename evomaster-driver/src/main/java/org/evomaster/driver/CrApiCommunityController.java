@@ -845,20 +845,36 @@ public class CrApiCommunityController extends ExternalSutController {
         if (Boolean.parseBoolean(System.getProperty("driver.disable.sql.spec", "false"))) {
             return Collections.emptyList();
         }
-        try {
-            Connection conn = DriverManager.getConnection(
-                    dbJdbcUrl(), dbUser(), dbPassword());
-            DbSpecification spec =
-                    new DbSpecification(DatabaseType.POSTGRES, conn)
-                            .withSchemas("public")
-                            .withDisabledSmartClean();
-            return Collections.singletonList(spec);
-        } catch (Exception e) {
-            System.err.println(
-                    "[driver] Could not open Postgres connection for DbSpecification: "
-                            + e.getMessage());
-            return Collections.emptyList();
+        Exception last = null;
+        int attempts = Integer.getInteger("driver.sql.spec.connection.retries", 20);
+        long sleepMs = Long.getLong("driver.sql.spec.connection.retry.sleep.ms", 1000L);
+
+        for (int i = 1; i <= attempts; i++) {
+            try {
+                Connection conn = DriverManager.getConnection(
+                        dbJdbcUrl(), dbUser(), dbPassword());
+                DbSpecification spec =
+                        new DbSpecification(DatabaseType.POSTGRES, conn)
+                                .withSchemas("public")
+                                .withDisabledSmartClean();
+                return Collections.singletonList(spec);
+            } catch (Exception e) {
+                last = e;
+                System.err.println("[driver] Postgres connection attempt " + i + "/" + attempts
+                        + " failed for DbSpecification: " + e.getMessage());
+                if (i < attempts) {
+                    try {
+                        Thread.sleep(sleepMs);
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        throw new RuntimeException("Interrupted while retrying DbSpecification connection", ie);
+                    }
+                }
+            }
         }
+
+        throw new RuntimeException("Could not open Postgres connection for DbSpecification after "
+                + attempts + " attempts", last);
     }
 
     // -----------------------------------------------------------------------
@@ -888,10 +904,17 @@ public class CrApiCommunityController extends ExternalSutController {
      * restricts to the ADMIN role.
      */
     /**
-     * Registers eight auth identities with EvoMaster — four JWT-based and four
-     * static-header (ApiKey) entries, one of each per seed account.
+     * Registers authentication identities with EvoMaster.
      *
-     * <h3>Why two entries per user?</h3>
+     * <p>By default this method registers only static ApiKey identities to avoid
+     * EvoMaster's known {@code "Bearer {}"} template-substitution issue in generated
+     * tests. JWT login-based identities are optional and can be enabled when needed.
+     * ApiKey identities can be disabled with
+     * {@code -Ddriver.auth.include.apikey=false}.
+     * Login identities can be enabled with
+     * {@code -Ddriver.auth.include.login=true}.
+     *
+     * <h3>Why ApiKey entries are optional?</h3>
      * <ul>
      *   <li><b>JWT entries</b> (alice, bob, mech, admin): EvoMaster dynamically
      *       POSTs to {@code /identity/api/auth/login} before each test and attaches
@@ -911,16 +934,25 @@ public class CrApiCommunityController extends ExternalSutController {
     @Override
     public List<AuthenticationDto> getInfoForAuthentication() {
         List<AuthenticationDto> list = new ArrayList<>();
-        // JWT-based auth (dynamic — used during exploration)
-        list.add(buildLogin("alice", USER_ALICE));
-        list.add(buildLogin("bob",   USER_BOB));
-        list.add(buildLogin("mech",  USER_MECH));
-        list.add(buildLogin("admin", USER_ADMIN));
-        // API-key-based auth (static — embeds cleanly in generated test code)
-        list.add(buildApiKeyAuth("alice-key", USER_ALICE));
-        list.add(buildApiKeyAuth("bob-key",   USER_BOB));
-        list.add(buildApiKeyAuth("mech-key",  USER_MECH));
-        list.add(buildApiKeyAuth("admin-key", USER_ADMIN));
+        if (Boolean.parseBoolean(System.getProperty("driver.auth.include.login", "false"))) {
+            // JWT-based auth (dynamic)
+            list.add(buildLogin("alice", USER_ALICE));
+            list.add(buildLogin("bob",   USER_BOB));
+            list.add(buildLogin("mech",  USER_MECH));
+            list.add(buildLogin("admin", USER_ADMIN));
+        }
+        if (Boolean.parseBoolean(System.getProperty("driver.auth.include.apikey", "true"))) {
+            // API-key-based auth (static — mainly useful for generated-test edge cases)
+            list.add(buildApiKeyAuth("alice-key", USER_ALICE));
+            list.add(buildApiKeyAuth("bob-key",   USER_BOB));
+            list.add(buildApiKeyAuth("mech-key",  USER_MECH));
+            list.add(buildApiKeyAuth("admin-key", USER_ADMIN));
+        }
+        if (list.isEmpty()) {
+            throw new IllegalStateException(
+                    "No auth identities configured. Enable at least one of " +
+                    "driver.auth.include.apikey or driver.auth.include.login");
+        }
         return list;
     }
 

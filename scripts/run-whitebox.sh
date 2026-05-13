@@ -31,6 +31,7 @@ set -euo pipefail
 TIME_BUDGET_MINUTES=60
 OUTPUT_DIR="$(pwd)/generated_tests"
 RESTORE_COMMUNITY=true
+AUTO_REPORT="${AUTO_REPORT:-true}"
 SEED_FILE=""
 SEED_FORMAT="POSTMAN"
 # Empty = let EvoMaster pick its own random seed each run (better exploration).
@@ -99,11 +100,11 @@ REGEN_SPEC="${REGEN_SPEC:-false}"
 
 DRIVER_PORT=40100
 SUT_PORT=8080
-DB_HOST="localhost"
-DB_PORT="5432"
-DB_NAME="crapi"
-DB_USER="admin"
-DB_PASS="crapisecretpassword"
+DB_HOST="${DB_HOST:-localhost}"
+DB_PORT="${DB_PORT:-5432}"
+DB_NAME="${DB_NAME:-crapi}"
+DB_USER="${DB_USER:-admin}"
+DB_PASS="${DB_PASS:-crapisecretpassword}"
 JWKS_FILE="${CRAPI_DIR}/jwks.json"
 EM_XMS="${EM_XMS:-256m}"
 # 2 GB gives EvoMaster enough heap for long runs without GC pressure stalling
@@ -111,6 +112,9 @@ EM_XMS="${EM_XMS:-256m}"
 EM_XMX="${EM_XMX:-2048m}"
 RESET_MONGO="${RESET_MONGO:-true}"
 SEED_USERS="${SEED_USERS:-true}"
+DRIVER_AUTH_INCLUDE_APIKEY="${DRIVER_AUTH_INCLUDE_APIKEY:-true}"
+DRIVER_AUTH_INCLUDE_LOGIN="${DRIVER_AUTH_INCLUDE_LOGIN:-false}"
+AUTH_SMOKE_CHECK="${AUTH_SMOKE_CHECK:-false}"
 EM_EXPERIMENTAL="${EM_EXPERIMENTAL:-false}"
 # Impact-guided mutation is EvoMaster's core adaptive learning algorithm.
 # It was disabled previously to work around a crash in TableConstraintEvaluator
@@ -130,6 +134,8 @@ warning() { echo "[WARN]  $*" >&2; }
 error()   { echo "[ERROR] $*" >&2; }
 
 DRIVER_PID=""
+EM_PID=""
+INTERRUPTED_RUN=false
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -214,7 +220,7 @@ if [[ -z "${SEED_FILE}" ]]; then
       "/opt/crapi/postman/crapi.postman_collection.json"; do
     if [[ -s "${_postman_candidate}" ]]; then
       info "Auto-detected Postman collection: ${_postman_candidate}"
-      SANITIZED_POSTMAN="$(mktemp /tmp/crapi-postman-sanitized-XXXXXX.json)"
+      SANITIZED_POSTMAN="$(mktemp -t crapi-postman-sanitized.XXXXXX)"
       bash "${SCRIPT_DIR}/sanitize-postman.sh" "${_postman_candidate}" "${SANITIZED_POSTMAN}"
       SEED_FILE="${SANITIZED_POSTMAN}"
       SEED_FORMAT="POSTMAN"
@@ -293,6 +299,75 @@ choose_driver_port() {
   exit 1
 }
 
+wait_for_postgres() {
+  local compose_file="${REPO_ROOT}/docker-compose.evomaster.yml"
+  local max_attempts=60
+  local attempt
+  local warned_bridge=false
+
+  postgres_host_ready() {
+    if command -v pg_isready >/dev/null 2>&1; then
+      pg_isready -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" >/dev/null 2>&1
+      return $?
+    fi
+    if command -v nc >/dev/null 2>&1; then
+      nc -z "${DB_HOST}" "${DB_PORT}" >/dev/null 2>&1
+      return $?
+    fi
+    if [[ "${DB_HOST}" == "localhost" || "${DB_HOST}" == "127.0.0.1" ]]; then
+      lsof -nP -iTCP:"${DB_PORT}" -sTCP:LISTEN >/dev/null 2>&1
+      return $?
+    fi
+    return 1
+  }
+
+  info "Waiting for PostgreSQL to become ready…"
+  for attempt in $(seq 1 "${max_attempts}"); do
+    if postgres_host_ready; then
+      info "PostgreSQL is ready on ${DB_HOST}:${DB_PORT}."
+      return 0
+    fi
+
+    local pg_container
+    pg_container="$(docker compose -f "${compose_file}" ps -q postgres 2>/dev/null || true)"
+    if [[ -n "${pg_container}" ]] && docker exec "${pg_container}" pg_isready -U "${DB_USER}" -d "${DB_NAME}" >/dev/null 2>&1; then
+      if [[ "${warned_bridge}" == "false" ]]; then
+        warning "PostgreSQL is healthy in Docker, but not reachable from host at ${DB_HOST}:${DB_PORT} yet."
+        warned_bridge=true
+      fi
+    fi
+    sleep 2
+  done
+
+  error "PostgreSQL did not become ready on host endpoint ${DB_HOST}:${DB_PORT} within timeout."
+  error "If Docker is healthy but host access fails, ensure docker-compose.evomaster.yml maps port 5432 to 127.0.0.1 and LISTEN_IP is not overriding it."
+  error "You can also run with DB_HOST=<postgres-host> DB_PORT=<port> bash scripts/run-whitebox.sh ..."
+  return 1
+}
+
+wait_for_auth_login() {
+  local max_attempts=40
+  local attempt
+  local url="http://localhost:${SUT_PORT}/identity/api/auth/login"
+  local payload='{"email":"alice@evomaster.test","password":"Passw0rd!1A"}'
+
+  info "Waiting for seeded auth login to succeed before starting EvoMaster…"
+  for attempt in $(seq 1 "${max_attempts}"); do
+    local body token
+    body="$(curl -s --max-time 5 -H 'Content-Type: application/json' -d "${payload}" "${url}" 2>/dev/null || true)"
+    token="$(printf '%s' "${body}" | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)"
+    if [[ -n "${token}" && "${token}" == *.*.* ]]; then
+      info "Auth smoke-check passed."
+      return 0
+    fi
+    sleep 2
+  done
+
+  warning "Auth smoke-check did not get a token before timeout."
+  warning "Continuing with EvoMaster; check generated_tests/evomaster.log for repeated 'Got 401 although having auth'."
+  return 0
+}
+
 cleanup() {
   info "Cleaning up…"
   if [[ -n "${DRIVER_PID}" ]] && kill -0 "${DRIVER_PID}" 2>/dev/null; then
@@ -312,6 +387,19 @@ cleanup() {
 }
 
 trap cleanup EXIT
+
+on_interrupt() {
+  if [[ -n "${EM_PID}" ]] && kill -0 "${EM_PID}" 2>/dev/null; then
+    warning "Interrupt received. Asking EvoMaster to stop gracefully and write current output…"
+    INTERRUPTED_RUN=true
+    kill -INT "${EM_PID}" 2>/dev/null || true
+    return
+  fi
+  warning "Interrupt received with no active EvoMaster process. Exiting."
+  exit 130
+}
+
+trap on_interrupt INT TERM
 
 # ---------------------------------------------------------------------------
 # Pre-flight checks
@@ -350,6 +438,7 @@ info "Starting required infra services (postgres, mongodb, mailhog)…"
 docker compose \
   -f "${REPO_ROOT}/docker-compose.evomaster.yml" \
   up -d --remove-orphans postgres mongodb mailhog
+wait_for_postgres
 
 # Stop web/workshop containers that depend on Docker-managed identity.
 # Keep community running because the host identity service calls it.
@@ -375,6 +464,10 @@ choose_driver_port "${DRIVER_PORT}"
 #    The driver spawns the community service JAR with the agent attached.
 # ---------------------------------------------------------------------------
 mkdir -p "${OUTPUT_DIR}"
+# Avoid stale test suites/reports from previous runs being mistaken for new output.
+find "${OUTPUT_DIR}" -maxdepth 1 -type f \
+  \( -name 'CrApiCommunityEvoMasterTest*.java' -o -name 'index.html' -o -name 'report.json' -o -name 'surefire-report.html' \) \
+  -delete 2>/dev/null || true
 
 # Start the driver with retries: another parallel run can claim the same port
 # in the short window between our free-port probe and the actual bind.
@@ -394,6 +487,8 @@ for attempt in $(seq 1 6); do
     -Djwks.file="${JWKS_FILE}" \
     -Dreset.mongo="${RESET_MONGO}" \
     -Dseed.users="${SEED_USERS}" \
+    -Ddriver.auth.include.apikey="${DRIVER_AUTH_INCLUDE_APIKEY}" \
+    -Ddriver.auth.include.login="${DRIVER_AUTH_INCLUDE_LOGIN}" \
     -Dopenapi.url="file://${PATCHED_SPEC}" \
     -jar "${DRIVER_JAR}" "${DRIVER_PORT}" \
     > "${OUTPUT_DIR}/driver.log" 2>&1 &
@@ -440,6 +535,12 @@ if [[ "${DRIVER_READY}" != "true" ]]; then
   error "EvoMaster driver failed to start after multiple port retries."
   error "Check ${OUTPUT_DIR}/driver.log for details."
   exit 1
+fi
+
+if [[ "${AUTH_SMOKE_CHECK}" == "true" ]]; then
+  wait_for_auth_login
+else
+  info "Skipping pre-run auth smoke-check (AUTH_SMOKE_CHECK=false)."
 fi
 
 # ---------------------------------------------------------------------------
@@ -559,8 +660,20 @@ EVOMASTER_LOG="${OUTPUT_DIR}/evomaster.log"
   "${STABILITY_ARGS[@]}" \
   "${EXPERIMENTAL_ARGS[@]}" \
   "${SEED_VALUE_ARGS[@]}" \
-  "${SEED_ARGS[@]}" | tee "${EVOMASTER_LOG}"
-EM_EXIT=${PIPESTATUS[0]}
+  "${SEED_ARGS[@]}" > >(tee "${EVOMASTER_LOG}") 2>&1 &
+EM_PID=$!
+
+while true; do
+  wait "${EM_PID}"
+  EM_EXIT=$?
+  # wait can return early when this wrapper gets a signal; keep waiting until
+  # EvoMaster has actually terminated.
+  if [[ "${EM_EXIT}" -ge 128 ]] && kill -0 "${EM_PID}" 2>/dev/null; then
+    continue
+  fi
+  break
+done
+EM_PID=""
 set -e
 set -u
 
@@ -576,7 +689,20 @@ if [[ "${EM_EXIT}" -ne 0 ]]; then
   else
     warning "Driver process is not running after EvoMaster failure."
   fi
-  exit "${EM_EXIT}"
+  if [[ "${INTERRUPTED_RUN}" == "true" ]]; then
+    warning "Run was interrupted by user signal."
+  fi
+fi
+
+GENERATED_SOURCES=( "${OUTPUT_DIR}"/CrApiCommunityEvoMasterTest*.java )
+if [[ "${AUTO_REPORT}" == "true" ]]; then
+  if [[ -f "${GENERATED_SOURCES[0]}" ]]; then
+    info "Generating HTML report from current generated tests…"
+    bash "${SCRIPT_DIR}/run-report.sh" --tests-dir "${OUTPUT_DIR}" --sut-base-url "http://localhost:${SUT_PORT}" \
+      || warning "run-report.sh failed. Check logs above."
+  else
+    warning "No generated Java tests found in ${OUTPUT_DIR}; skipping HTML report generation."
+  fi
 fi
 
 # ---------------------------------------------------------------------------

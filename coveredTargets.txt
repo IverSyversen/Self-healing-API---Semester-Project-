@@ -1,0 +1,141 @@
+description
+200:POST:/identity/api/auth/forget-password
+200:POST:/identity/api/auth/login
+400:POST:/identity/api/auth/forget-password
+400:POST:/identity/api/auth/login
+400:POST:/identity/api/auth/signup
+400:POST:/identity/api/auth/v3/check-otp
+401:DELETE:/identity/api/v2/admin/videos/{video_id}
+401:DELETE:/identity/api/v2/user/videos/{video_id}
+401:GET:/identity/api/v2/user/videos/convert_video
+401:GET:/identity/api/v2/user/videos/{video_id}
+401:GET:/identity/api/v2/vehicle/vehicles
+401:GET:/identity/api/v2/vehicle/{vehicleId}/location
+401:POST:/identity/api/v2/user/change-email
+401:POST:/identity/api/v2/user/pictures
+401:POST:/identity/api/v2/user/reset-password
+401:POST:/identity/api/v2/user/verify-email-token
+401:POST:/identity/api/v2/user/videos
+401:POST:/identity/api/v2/vehicle/add_vehicle
+401:POST:/identity/api/v2/vehicle/resend_email
+401:PUT:/identity/api/v2/user/videos/{video_id}
+403:POST:/identity/api/auth/signup
+403:POST:/identity/api/auth/v4.0/user/login-with-token
+404:GET:/identity/api/v2/user/dashboard
+500:POST:/identity/api/auth/v2.7/user/login-with-token
+500:POST:/identity/api/auth/v2/check-otp
+500:POST:/identity/api/auth/v3/check-otp
+EXAMPLE_DELETE/identity/api/v2/admin/videos/{video_id}_video_id_12345
+EXAMPLE_DELETE/identity/api/v2/user/videos/{video_id}_video_id_1
+EXAMPLE_GET/identity/api/v2/user/videos/convert_video_video_id_1
+EXAMPLE_GET/identity/api/v2/user/videos/{video_id}_video_id_1
+EXAMPLE_GET/identity/api/v2/vehicle/{vehicleId}/location_vehicleId_1929186d-8b67-4163-a208-de52a41f7301
+EXAMPLE_POST/identity/api/auth/forget-password_email_adam007@example.com
+EXAMPLE_POST/identity/api/auth/login_email_test@example.com
+EXAMPLE_POST/identity/api/auth/login_password_Test!123
+EXAMPLE_POST/identity/api/auth/signup_email_Cristobal.Weissnat@example.com
+EXAMPLE_POST/identity/api/auth/signup_name_Cristobal.Weissnat
+EXAMPLE_POST/identity/api/auth/signup_number_6915656974
+EXAMPLE_POST/identity/api/auth/signup_password_5hmb0gvyC__hVQg
+EXAMPLE_POST/identity/api/auth/v2/check-otp_email_Cristobal.Weissnat@example.com
+EXAMPLE_POST/identity/api/auth/v2/check-otp_otp_9969
+EXAMPLE_POST/identity/api/auth/v2/check-otp_password_5hmb0gvyC__hVQg
+EXAMPLE_POST/identity/api/auth/v3/check-otp_email_Cristobal.Weissnat@example.com
+EXAMPLE_POST/identity/api/auth/v3/check-otp_otp_9969
+EXAMPLE_POST/identity/api/auth/v3/check-otp_password_5hmb0gvyC__hVQg
+EXAMPLE_POST/identity/api/v2/user/change-email_new_email_Sofia.Predovic@example.com
+EXAMPLE_POST/identity/api/v2/user/change-email_old_email_Cristobal.Weissnat@example.com
+EXAMPLE_POST/identity/api/v2/user/verify-email-token_new_email_Danielle.Ankunding@example.com
+EXAMPLE_POST/identity/api/v2/user/verify-email-token_old_email_Einar.Swaniawski@example.com
+EXAMPLE_POST/identity/api/v2/user/verify-email-token_token_T9O2s6i3C7o2E8l7X5Y4
+EXAMPLE_POST/identity/api/v2/vehicle/add_vehicle_pincode_9896
+EXAMPLE_POST/identity/api/v2/vehicle/add_vehicle_vin_0IOJO38SMVL663989
+EXAMPLE_PUT/identity/api/v2/user/videos/{video_id}_video_id_10
+HTTP_FAULT:POST:/identity/api/auth/v2.7/user/login-with-token
+HTTP_FAULT:POST:/identity/api/auth/v2/check-otp
+HTTP_FAULT:POST:/identity/api/auth/v3/check-otp
+HTTP_SUCCESS:POST:/identity/api/auth/forget-password
+HTTP_SUCCESS:POST:/identity/api/auth/login
+INPUT_DELETE/identity/api/v2/admin/videos/{video_id}_PathParam_video_id_SCHEMA_EXAMPLES_12345
+INPUT_DELETE/identity/api/v2/admin/videos/{video_id}_PathParam_video_id_video_id_negative
+INPUT_DELETE/identity/api/v2/admin/videos/{video_id}_PathParam_video_id_video_id_positive
+INPUT_DELETE/identity/api/v2/user/videos/{video_id}_PathParam_video_id_SCHEMA_EXAMPLES_1
+INPUT_DELETE/identity/api/v2/user/videos/{video_id}_PathParam_video_id_video_id_negative
+INPUT_DELETE/identity/api/v2/user/videos/{video_id}_PathParam_video_id_video_id_positive
+INPUT_GET/identity/api/v2/user/videos/convert_video_QueryParam_video_id_SCHEMA_EXAMPLES_1
+INPUT_GET/identity/api/v2/user/videos/convert_video_QueryParam_video_id_video_id_negative
+INPUT_GET/identity/api/v2/user/videos/convert_video_QueryParam_video_id_video_id_positive
+INPUT_GET/identity/api/v2/user/videos/{video_id}_PathParam_video_id_SCHEMA_EXAMPLES_1
+INPUT_GET/identity/api/v2/user/videos/{video_id}_PathParam_video_id_video_id_negative
+INPUT_GET/identity/api/v2/user/videos/{video_id}_PathParam_video_id_video_id_positive
+INPUT_GET/identity/api/v2/vehicle/{vehicleId}/location_PathParam_vehicleId_SCHEMA_EXAMPLES_1929186d-8b67-4163-a208-de52a41f7301
+INPUT_POST/identity/api/auth/forget-password_BodyParam_body_contentType_SUCCESS_application/json
+INPUT_POST/identity/api/auth/forget-password_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/auth/login_BodyParam_body_contentType_SUCCESS_application/json
+INPUT_POST/identity/api/auth/login_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/auth/signup_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/auth/v2.7/user/login-with-token_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/auth/v2/check-otp_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/auth/v3/check-otp_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/auth/v4.0/user/login-with-token_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/v2/user/change-email_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/v2/user/pictures_BodyParam_body_contentType_application/x-www-form-urlencoded
+INPUT_POST/identity/api/v2/user/reset-password_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/v2/user/verify-email-token_BodyParam_body_contentType_application/json
+INPUT_POST/identity/api/v2/user/videos_BodyParam_body_contentType_application/x-www-form-urlencoded
+INPUT_POST/identity/api/v2/vehicle/add_vehicle_BodyParam_body_contentType_application/json
+INPUT_PUT/identity/api/v2/user/videos/{video_id}_BodyParam_body_contentType_application/json
+INPUT_PUT/identity/api/v2/user/videos/{video_id}_PathParam_video_id_SCHEMA_EXAMPLES_10
+INPUT_PUT/identity/api/v2/user/videos/{video_id}_PathParam_video_id_video_id_negative
+INPUT_PUT/identity/api/v2/user/videos/{video_id}_PathParam_video_id_video_id_positive
+PotentialFault F100:HTTP Status 500 POST:/identity/api/auth/v2.7/user/login-with-token
+PotentialFault F100:HTTP Status 500 POST:/identity/api/auth/v2/check-otp
+PotentialFault F100:HTTP Status 500 POST:/identity/api/auth/v3/check-otp
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema DELETE:/identity/api/v2/admin/videos/{video_id} -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema DELETE:/identity/api/v2/user/videos/{video_id} -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema GET:/identity/api/v2/user/videos/convert_video -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema GET:/identity/api/v2/user/videos/{video_id} -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema GET:/identity/api/v2/vehicle/vehicles -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema GET:/identity/api/v2/vehicle/{vehicleId}/location -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/auth/forget-password -> validation.response.status.unknown
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/auth/login -> validation.response.status.unknown
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/auth/signup -> validation.response.status.unknown
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/auth/v2.7/user/login-with-token -> validation.response.status.unknown
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/auth/v3/check-otp -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/auth/v3/check-otp -> validation.response.status.unknown
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/v2/user/change-email -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/v2/user/pictures -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/v2/user/reset-password -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/v2/user/verify-email-token -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/v2/user/videos -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/v2/vehicle/add_vehicle -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema POST:/identity/api/v2/vehicle/resend_email -> validation.response.body.schema.invalidJson
+PotentialFault F101:Received A Response From API With A Structure/Data That Is Not Matching Its Schema PUT:/identity/api/v2/user/videos/{video_id} -> validation.response.body.schema.invalidJson
+QUERY_PARAM_false_video_id_GET/identity/api/v2/user/videos/convert_video
+QUERY_PARAM_true_video_id_GET/identity/api/v2/user/videos/convert_video
+RESPONSE_BODY_PAYLOAD_DELETE/identity/api/v2/admin/videos/{video_id}_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_DELETE/identity/api/v2/user/videos/{video_id}_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_GET/identity/api/v2/user/dashboard_application/json
+RESPONSE_BODY_PAYLOAD_GET/identity/api/v2/user/videos/convert_video_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_GET/identity/api/v2/user/videos/{video_id}_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_GET/identity/api/v2/vehicle/vehicles_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_GET/identity/api/v2/vehicle/{vehicleId}/location_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/forget-password_application/json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/forget-password_application/problem+json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/login_application/json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/login_application/problem+json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/signup_application/json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/signup_application/problem+json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/v2.7/user/login-with-token_application/json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/v2/check-otp_text/plain;charset=UTF-8
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/v3/check-otp_application/json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/v3/check-otp_application/problem+json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/auth/v4.0/user/login-with-token_application/json
+RESPONSE_BODY_PAYLOAD_POST/identity/api/v2/user/change-email_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_POST/identity/api/v2/user/pictures_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_POST/identity/api/v2/user/reset-password_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_POST/identity/api/v2/user/verify-email-token_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_POST/identity/api/v2/user/videos_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_POST/identity/api/v2/vehicle/add_vehicle_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_POST/identity/api/v2/vehicle/resend_email_application/json;charset=ISO-8859-1
+RESPONSE_BODY_PAYLOAD_PUT/identity/api/v2/user/videos/{video_id}_application/json;charset=ISO-8859-1

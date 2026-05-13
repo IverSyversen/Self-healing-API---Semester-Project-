@@ -1,16 +1,16 @@
 {
   "_comment": "Self-healing pipeline configuration. Edit these values to match your environment.",
 
-  "scanners": ["evomaster", "nuclei", "zap", "schemathesis"],
+  "scanners": ["nuclei", "zap", "schemathesis"],
 
   "base_url": "http://localhost:8888",
 
-  "evomaster_stats":     "statistics.csv",
-  "evomaster_tests_dir": "generated_tests",
+  "evomaster_stats":     "../generated_tests/statistics.csv",
+  "evomaster_tests_dir": "../generated_tests",
 
   "nuclei_target":    "http://localhost:8888",
-  "nuclei_templates": ["api", "token", "http/misconfiguration"],
-  "nuclei_extra_args": [],
+  "nuclei_templates": [],
+  "nuclei_extra_args": ["-tags", "api,token,misconfig", "-rl", "50"],
 
   "zap_target":       "http://localhost:8888",
   "zap_docker_image": "ghcr.io/zaproxy/zaproxy:stable",

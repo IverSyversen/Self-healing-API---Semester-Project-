@@ -24,19 +24,26 @@ REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 CRAPI_REPO="https://github.com/OWASP/crAPI/archive/refs/heads/main.zip"
 WORK_DIR="/tmp/crapi-build"
-INSTALL_DIR="/opt/crapi"
-JAR_TARGET="${INSTALL_DIR}/identity-service.jar"
-JWKS_TARGET="${INSTALL_DIR}/jwks.json"
+INSTALL_DIR="${CRAPI_DIR:-/opt/crapi}"
 JWT_PATCH_FILE="${REPO_ROOT}/scripts/patches/identity-jwt-null-safety.patch"
+FORCE_IDENTITY_REBUILD="${FORCE_IDENTITY_REBUILD:-false}"
 
 info()  { echo "[INFO]  $*"; }
 error() { echo "[ERROR] $*" >&2; }
+
+if [[ "${INSTALL_DIR}" == "/opt/crapi" && ! -w "/opt" ]]; then
+  INSTALL_DIR="${HOME}/.local/crapi"
+  info "No write access to /opt; falling back to ${INSTALL_DIR}"
+fi
+
+JAR_TARGET="${INSTALL_DIR}/identity-service.jar"
+JWKS_TARGET="${INSTALL_DIR}/jwks.json"
 
 # ---------------------------------------------------------------------------
 # Skip rebuild only when both the JAR and the JWKS file are already in place.
 # If either is missing the full build and install must run.
 # ---------------------------------------------------------------------------
-if [[ -f "${JAR_TARGET}" && -f "${JWKS_TARGET}" ]]; then
+if [[ "${FORCE_IDENTITY_REBUILD}" != "true" && -f "${JAR_TARGET}" && -f "${JWKS_TARGET}" ]]; then
   info "Identity service JAR and JWKS file already present – skipping build."
   info "Delete ${JAR_TARGET} or ${JWKS_TARGET} and re-run this script to force a rebuild."
   exit 0

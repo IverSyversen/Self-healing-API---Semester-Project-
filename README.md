@@ -53,12 +53,34 @@ https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-sp
 
 ## Tools
 
-### EvoMaster – Black-Box Mode (existing)
+### EvoMaster – Black-Box Mode (full crAPI surface)
 
-See report: start a local Python HTTP server from the `generated_tests` folder, then open `http://localhost:8000` in a browser.
+Run EvoMaster against the full gateway (web/API on port 8888):
 
 ```bash
-python -m http.server 8000
+# 2-hour default budget, output to ./generated_tests_blackbox
+bash scripts/run-blackbox.sh
+
+# Custom budget/output
+bash scripts/run-blackbox.sh --time 30 --output ./generated_tests_blackbox
+
+# Clean-state run (recreates Docker volumes first)
+bash scripts/run-blackbox.sh --reset-data --time 60 --output ./generated_tests_blackbox
+```
+
+`run-blackbox.sh`:
+1. Starts the full crAPI stack (`postgres`, `mongodb`, `mailhog`, `crapi-identity`, `crapi-workshop`, `crapi-community`, `crapi-web`)
+2. Targets `http://localhost:8888` in black-box mode
+3. Uses the local patched OpenAPI spec (`postman/crapi-openapi-spec-patched.json`)
+4. Auto-seeds from the Postman collection when available
+5. Generates tests and then runs `scripts/run-report.sh` to produce HTML report
+
+Report output:
+
+```bash
+cd generated_tests_blackbox
+python3 -m http.server 8000
+# Open http://localhost:8000/surefire-report.html
 ```
 
 ### EvoMaster – White-Box Mode

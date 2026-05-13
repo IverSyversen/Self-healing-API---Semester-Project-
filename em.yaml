@@ -46,65 +46,7 @@ configs:
 
 
 ### Authentication configurations.
-### Two JWT-login entries (alice, bob) give EvoMaster's BOLA oracle the two
-### distinct user tokens it needs to detect cross-user object access.
-### The mechanic and admin entries unlock role-gated endpoints.
-###
-### NOTE: in white-box mode the driver's getInfoForAuthentication() is the
-### primary auth source.  These entries act as a redundant fallback and are
-### used when EvoMaster runs in black-box mode against the reverse proxy.
-
-authTemplate:
-  loginEndpointAuth:
-    endpoint:    "/identity/api/auth/login"
-    verb:        POST
-    contentType: "application/json"
-    token:
-      extractFrom:   body
-      extractSelector: "/token"
-      sendIn:        header
-      sendName:      "Authorization"
-      sendTemplate:  "Bearer {}"
-    expectCookies: false
-
-auth:
-  - name: alice
-    loginEndpointAuth:
-      payloadRaw: '{"email":"alice@evomaster.test","password":"Passw0rd!1A"}'
-
-  - name: bob
-    loginEndpointAuth:
-      payloadRaw: '{"email":"bob@evomaster.test","password":"Passw0rd!1A"}'
-
-  - name: mech
-    loginEndpointAuth:
-      payloadRaw: '{"email":"mech@evomaster.test","password":"Passw0rd!1A"}'
-
-  - name: admin
-    loginEndpointAuth:
-      payloadRaw: '{"email":"admin@evomaster.test","password":"Passw0rd!1A"}'
-
-  ### Static API-key entries (fixed headers — no login call needed).
-  ### crAPI's JwtAuthTokenFilter accepts "Authorization: ApiKey <jwt>" and skips
-  ### signature verification, so a fake-signed JWT works as a stable fixed header.
-  ### These prevent the "Bearer {}" placeholder bug in generated test code.
-
-  - name: alice-key
-    fixedHeaders:
-      - name:  "Authorization"
-        value: "ApiKey eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhbGljZUBldm9tYXN0ZXIudGVzdCIsInJvbGUiOiJ1c2VyIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9.AAAAAAAAAA"
-
-  - name: bob-key
-    fixedHeaders:
-      - name:  "Authorization"
-        value: "ApiKey eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJib2JAZXZvbWFzdGVyLnRlc3QiLCJyb2xlIjoidXNlciIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.AAAAAAAAAA"
-
-  - name: mech-key
-    fixedHeaders:
-      - name:  "Authorization"
-        value: "ApiKey eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJtZWNoQGV2b21hc3Rlci50ZXN0Iiwicm9sZSI6Im1lY2hhbmljIiwiaWF0IjoxNzAwMDAwMDAwLCJleHAiOjQxMDI0NDQ4MDB9.AAAAAAAAAA"
-
-  - name: admin-key
-    fixedHeaders:
-      - name:  "Authorization"
-        value: "ApiKey eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJhZG1pbkBldm9tYXN0ZXIudGVzdCIsInJvbGUiOiJhZG1pbiIsImlhdCI6MTcwMDAwMDAwMCwiZXhwIjo0MTAyNDQ0ODAwfQ.AAAAAAAAAA"
+### In white-box mode, the driver's getInfoForAuthentication() is the sole
+### auth source.  EvoMaster merges yaml auth entries with driver entries and
+### rejects duplicates, so we do NOT define auth or authTemplate here.
+### Black-box runs should pass --auth flags on the CLI instead.
