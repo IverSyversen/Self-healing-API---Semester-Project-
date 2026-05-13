@@ -1,78 +1,96 @@
 {
-  "generated_at": "2026-05-11T15:10:44.408023+00:00",
-  "source_path": "generated-tests",
+  "generated_at": "2026-05-13T09:03:59.110411+00:00",
+  "source_path": "generated_tests",
   "entries": [
     {
       "fault_code": "Fault100",
       "vulnerability_name": "Unhandled Internal Crash",
       "owasp_tag": "API7-2019",
       "subcategory_name": "Server Error Handling",
-      "primary_category_name_2023": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "primary_category_name_2023": "(dry-run, not looked up)",
       "primary_slug_2019": "api7_security_misconfiguration",
       "repo_path": "api7_security_misconfiguration/server_error_handling/unhandled_internal_crash/search_replace.json",
       "directory": "api7_security_misconfiguration/server_error_handling/unhandled_internal_crash",
-      "occurrences": 23,
+      "occurrences": 15,
       "endpoints": [
-        "DELETE:/identity/api/v2/admin/videos/{video_id}",
-        "GET:/identity/api/v2/user/videos/convert_video",
-        "POST:/identity/api/auth/login",
+        "GET:/community/api/v2/community/posts/recent",
+        "GET:/workshop/api/mechanic/receive_report",
+        "GET:/workshop/api/shop/orders/{order_id}",
+        "POST:/community/api/v2/community/posts/{postId}/comment",
+        "POST:/community/api/v2/coupon/validate-coupon",
         "POST:/identity/api/auth/v2.7/user/login-with-token",
         "POST:/identity/api/auth/v2/check-otp",
         "POST:/identity/api/auth/v3/check-otp",
-        "POST:/identity/api/auth/v4.0/user/login-with-token",
         "POST:/identity/api/v2/user/pictures",
-        "POST:/identity/api/v2/user/reset-password",
         "POST:/identity/api/v2/user/verify-email-token",
         "POST:/identity/api/v2/user/videos",
-        "PUT:/identity/api/v2/user/videos/{video_id}"
-      ]
+        "POST:/workshop/api/shop/orders",
+        "POST:/workshop/api/shop/orders/return_order",
+        "PUT:/workshop/api/shop/orders/{order_id}"
+      ],
+      "dry_run": true
     },
     {
       "fault_code": "Fault101",
       "vulnerability_name": "Response Schema Mismatch",
       "owasp_tag": "API7-2019",
       "subcategory_name": "API Schema Compliance",
-      "primary_category_name_2023": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "primary_category_name_2023": "(dry-run, not looked up)",
       "primary_slug_2019": "api7_security_misconfiguration",
       "repo_path": "api7_security_misconfiguration/api_schema_compliance/response_schema_mismatch/search_replace.json",
       "directory": "api7_security_misconfiguration/api_schema_compliance/response_schema_mismatch",
-      "occurrences": 64,
+      "occurrences": 78,
       "endpoints": [
         "DELETE:/identity/api/v2/admin/videos/{video_id}",
         "DELETE:/identity/api/v2/user/videos/{video_id}",
+        "GET:/community/api/v2/community/posts/recent",
+        "GET:/community/api/v2/community/posts/{postId}",
         "GET:/identity/api/v2/user/videos/convert_video",
         "GET:/identity/api/v2/user/videos/{video_id}",
         "GET:/identity/api/v2/vehicle/vehicles",
         "GET:/identity/api/v2/vehicle/{vehicleId}/location",
-        "POST:/identity/api/auth/forget-password",
+        "GET:/workshop/api/management/users/all",
+        "GET:/workshop/api/mechanic/mechanic_report",
+        "GET:/workshop/api/mechanic/receive_report",
+        "GET:/workshop/api/shop/orders/{order_id}",
+        "GET:/workshop/api/shop/return_qr_code",
+        "POST:/community/api/v2/community/posts",
+        "POST:/community/api/v2/community/posts/{postId}/comment",
+        "POST:/community/api/v2/coupon/new-coupon",
+        "POST:/community/api/v2/coupon/validate-coupon",
         "POST:/identity/api/auth/login",
         "POST:/identity/api/auth/signup",
         "POST:/identity/api/auth/v2.7/user/login-with-token",
         "POST:/identity/api/auth/v3/check-otp",
-        "POST:/identity/api/auth/v4.0/user/login-with-token",
-        "POST:/identity/api/v2/user/change-email",
         "POST:/identity/api/v2/user/pictures",
-        "POST:/identity/api/v2/user/reset-password",
         "POST:/identity/api/v2/user/verify-email-token",
         "POST:/identity/api/v2/user/videos",
         "POST:/identity/api/v2/vehicle/add_vehicle",
         "POST:/identity/api/v2/vehicle/resend_email",
-        "PUT:/identity/api/v2/user/videos/{video_id}"
-      ]
+        "POST:/workshop/api/mechanic/signup",
+        "POST:/workshop/api/merchant/contact_mechanic",
+        "POST:/workshop/api/shop/apply_coupon",
+        "POST:/workshop/api/shop/orders",
+        "POST:/workshop/api/shop/orders/return_order",
+        "PUT:/identity/api/v2/user/videos/{video_id}",
+        "PUT:/workshop/api/shop/orders/{order_id}"
+      ],
+      "dry_run": true
     },
     {
       "fault_code": "Fault205",
       "vulnerability_name": "Undocumented HTTP Status Code",
       "owasp_tag": "API9-2019",
       "subcategory_name": "API Documentation Coverage",
-      "primary_category_name_2023": "API7:2023 - Server Side Request Forgery (SSRF)",
+      "primary_category_name_2023": "(dry-run, not looked up)",
       "primary_slug_2019": "api9_improper_asset_management",
       "repo_path": "api9_improper_asset_management/api_documentation_coverage/undocumented_http_status_code/search_replace.json",
       "directory": "api9_improper_asset_management/api_documentation_coverage/undocumented_http_status_code",
       "occurrences": 1,
       "endpoints": [
         "POST:/identity/api/auth/login"
-      ]
+      ],
+      "dry_run": true
     }
   ]
-}
+} 
