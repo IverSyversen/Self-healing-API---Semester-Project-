@@ -2,6 +2,140 @@
 
 [APISec_Readme.txt](https://github.com/user-attachments/files/26570343/APISec_Readme.txt)
 
+## EvoMaster (raw commands)
+
+The wrapper scripts (`run-blackbox.sh` / `run-whitebox.sh`) ultimately invoke the
+EvoMaster JAR with the flags below. Use these if you want to drive EvoMaster
+directly. They assume `evomaster.jar` (and `evomaster-agent.jar` for white-box)
+live in `/opt/evomaster`, the patched spec is at
+`postman/crapi-openapi-spec-patched.json`, and the crAPI stack is up
+(`docker compose -f docker-compose.evomaster.yml up -d`).
+
+### Black-box
+
+```bash
+# 1. Bring up the full stack
+docker compose -f docker-compose.evomaster.yml \
+  up -d postgres mongodb mailhog crapi-identity crapi-workshop crapi-community crapi-web
+
+# 2. Run EvoMaster against the gateway (port 8888)
+java -Xms256m -Xmx2048m -jar /opt/evomaster/evomaster.jar \
+  --blackBox true \
+  --problemType REST \
+  --bbTargetUrl http://localhost:8888 \
+  --bbSwaggerUrl "file://$(pwd)/postman/crapi-openapi-spec-patched.json" \
+  --maxTime 120m \
+  --outputFolder ./generated_tests_blackbox \
+  --outputFormat JAVA_JUNIT_5 \
+  --outputFilePrefix CrApiBlackBoxEvoMasterTest \
+  --enableBasicAssertions true \
+  --security true \
+  --schemaOracles true \
+  --taintOnSampling true \
+  --discoveredInfoRewardedInFitness true \
+  --advancedBlackBoxCoverage true \
+  --expectationsActive true \
+  --writeStatistics true \
+  --exportCoveredTarget true \
+  --extraPhaseBudgetPercentage 0.4 \
+  --minimizeTimeout 3
+```
+
+Common variations:
+
+```bash
+# Shorter budget + different output dir
+... --maxTime 30m --outputFolder ./my_tests
+
+# Different target / spec
+... --bbTargetUrl http://167.99.136.89:8888 --bbSwaggerUrl https://raw.githubusercontent.com/OWASP/crAPI/main/openapi-spec/crapi-openapi-spec.json
+
+# Fixed RNG seed (reproducible run)
+... --seed 42
+
+# Seed mutation from a Postman collection
+... --seedTestCases true --seedTestCasesPath postman/crapi.postman_collection.json --seedTestCasesFormat POSTMAN
+
+# Disable seeding explicitly (overrides cached em.yaml)
+... --seedTestCases false
+```
+
+### White-box
+
+White-box needs two processes: the **driver** (spawns the instrumented identity
+JAR with the agent) and the **EvoMaster CLI** (connects to the driver). Requires
+the one-time `sudo bash scripts/setup-droplet.sh` build first.
+
+```bash
+# 1. Start dependencies, then stop the Docker identity container to free port 8080
+docker compose -f docker-compose.evomaster.yml up -d --remove-orphans postgres mongodb mailhog
+docker compose -f docker-compose.evomaster.yml stop crapi-identity
+
+# 2. Start the EvoMaster driver on port 40100 (spawns identity-service.jar + agent)
+java \
+  -Dsut.jar=/opt/crapi/identity-service.jar \
+  -Devomaster.instrumentation.jar.path=/opt/evomaster/evomaster-agent.jar \
+  -Ddb.host=localhost -Ddb.port=5432 -Ddb.name=crapi \
+  -Ddb.user=admin -Ddb.password=crapisecretpassword \
+  -Djwks.file=/opt/crapi/jwks.json \
+  -Dreset.mongo=true -Dseed.users=true \
+  -Ddriver.auth.include.apikey=true -Ddriver.auth.include.login=false \
+  -Dopenapi.url="file://$(pwd)/postman/crapi-openapi-spec-patched.json" \
+  -jar evomaster-driver/target/crapi-community-driver-1.0.0.jar 40100 &
+
+# 3. Run the EvoMaster CLI in white-box mode (connects to the driver)
+java -Xms256m -Xmx2048m -jar /opt/evomaster/evomaster.jar \
+  --blackBox false \
+  --problemType REST \
+  --sutControllerHost localhost \
+  --sutControllerPort 40100 \
+  --maxTime 60m \
+  --outputFolder ./generated_tests \
+  --outputFormat JAVA_JUNIT_5 \
+  --outputFilePrefix CrApiCommunityEvoMasterTest \
+  --enableBasicAssertions true \
+  --endpointPrefix /identity/ \
+  --security true \
+  --schemaOracles true \
+  --expectationsActive true \
+  --taintOnSampling true \
+  --discoveredInfoRewardedInFitness true \
+  --advancedBlackBoxCoverage true \
+  --enableWriteSnapshotTests true \
+  --writeStatistics true \
+  --exportCoveredTarget true \
+  --extraPhaseBudgetPercentage 0.4 \
+  --minimizeTimeout 3
+```
+
+Common variations:
+
+```bash
+# Shorter budget + different output dir
+... --maxTime 30m --outputFolder /opt/results/evomaster
+
+# Fixed RNG seed (reproducible run)
+... --seed 42
+
+# Seed mutation from a Postman collection
+... --seedTestCases true --seedTestCasesPath /opt/crapi/postman/crapi.postman_collection.json --seedTestCasesFormat POSTMAN
+
+# No seeding (force off, overrides cached em.yaml)
+... --seedTestCases false
+
+# Legacy stability fallback (if impact-guided mutation crashes)
+... --doCollectImpact false --archiveGeneMutation NONE
+```
+
+After either run, build the HTML report:
+
+```bash
+cd generated_tests          # or generated_tests_blackbox
+python3 -m http.server 8000 # open http://localhost:8000/surefire-report.html
+```
+
+See [Tools → EvoMaster](#tools) below for the wrapper scripts, one-time setup, and report details.
+
 ## System Overview
 
 Infrastructure: Digital Ocean Droplet
