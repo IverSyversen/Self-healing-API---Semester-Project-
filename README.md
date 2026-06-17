@@ -352,15 +352,8 @@ The report shows pass/fail counts for each test class
 | Test quality | HTTP-level | Deeper: explores internal branches |
 | Setup complexity | Low | Medium (Java build required) |
 
-### Snyk (NOT the API CLI)
-
-```bash
-# Add Docker container to app.snyk.io
-snyk container monitor <container:tag>
-
-# Static Application Security Testing
-snyk code test
-```
+### PYNT RUN
+pynt newman --collection C:\Users\ivers\crAPI-modified.json --environment C:\Users\ivers\Documents\Github\crAPI-develop\postman_collections\crAPI.postman_environment.json
 
 ### Parser walkthrough
 
