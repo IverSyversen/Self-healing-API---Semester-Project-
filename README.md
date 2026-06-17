@@ -361,3 +361,97 @@ snyk container monitor <container:tag>
 # Static Application Security Testing
 snyk code test
 ```
+
+### Parser walkthrough
+
+This workflow initializes the OWASP mapping database, runs the automated parsers to ingest scan results, and verifies the final standardized output.
+
+#### 1. Initialize the Clean Database
+Create the base table architecture (Primary Categories and empty Subcategories/Mitigations):
+
+```bash
+mysql -u root -p < owasp_setup.sql
+```
+
+#### 2. Check the table
+Verify the structure is clean (subcategories should be blank). Log into MySQL:
+```bash
+mysql -u root -p
+```
+
+Then visualize the table to ensure no vulnerability mappings is present
+```bash
+USE OWASP_TOP_10_API_VULNERABILITIES;
+
+SELECT primary_id, category_name, subcategory_id, subcategory_name 
+FROM (     
+    SELECT         
+        p.id AS sort_primary,         
+        ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY s.id) AS sort_sub,         
+        IFNULL(CAST(CASE WHEN ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY s.id) = 1 THEN p.id END AS CHAR), '') AS primary_id,         
+        IFNULL(CASE WHEN ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY s.id) = 1 THEN p.category_name END, '') AS category_name,         
+        IFNULL(CAST(s.id AS CHAR), '') AS subcategory_id,         
+        IFNULL(s.subcategory_name, '') AS subcategory_name     
+    FROM primary_categories p     
+    LEFT JOIN subcategories s ON s.primary_id = p.id     
+    UNION ALL     
+    SELECT         
+        p.id AS sort_primary,         
+        9999 AS sort_sub,         
+        REPEAT('_', 10),         
+        REPEAT('_', 60),         
+        REPEAT('_', 14),         
+        REPEAT('_', 40)     
+    FROM primary_categories p 
+) combined 
+ORDER BY sort_primary, sort_sub;
+```
+
+Then exit mysql by typing
+```bash
+exit;
+```
+
+#### 3. Execute the Automated Parsers
+Run the Python scripts to parse the raw scan reports, dynamically build missing subcategories, and insert the findings.
+```bash
+# Parse EvoMaster Java tests
+python3 import_evomaster.py generated_tests_v2/ --db-password 'YOUR_PASSWORD'
+
+# Parse Pynt HTML report
+python3 import_pynt.py results.html --db-password 'YOUR_PASSWORD'
+```
+
+#### 4. Verify Mapped Vulnerabilities
+Log back into MySQL to view the cleanly mapped taxonomy of your new findings.
+```bash
+mysql -u root -p
+```
+
+Run the exact same query from Step 1. You will now see the subcategory columns populated with the specific findings mapped from EvoMaster and Pynt:
+```bash
+USE OWASP_TOP_10_API_VULNERABILITIES;
+
+SELECT primary_id, category_name, subcategory_id, subcategory_name 
+FROM (     
+    SELECT         
+        p.id AS sort_primary,         
+        ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY s.id) AS sort_sub,         
+        IFNULL(CAST(CASE WHEN ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY s.id) = 1 THEN p.id END AS CHAR), '') AS primary_id,         
+        IFNULL(CASE WHEN ROW_NUMBER() OVER (PARTITION BY p.id ORDER BY s.id) = 1 THEN p.category_name END, '') AS category_name,         
+        IFNULL(CAST(s.id AS CHAR), '') AS subcategory_id,         
+        IFNULL(s.subcategory_name, '') AS subcategory_name     
+    FROM primary_categories p     
+    LEFT JOIN subcategories s ON s.primary_id = p.id     
+    UNION ALL     
+    SELECT         
+        p.id AS sort_primary,         
+        9999 AS sort_sub,         
+        REPEAT('_', 10),         
+        REPEAT('_', 60),         
+        REPEAT('_', 14),         
+        REPEAT('_', 40)     
+    FROM primary_categories p 
+) combined 
+ORDER BY sort_primary, sort_sub;
+```
